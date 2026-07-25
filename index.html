@@ -2,37 +2,106 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>雛ブレ2nd 物理シミュレータ プロトタイプ(左右対応)</title>
+    <title>雛ブレ2nd 物理シミュレータ＆配置エディタ</title>
     <script src="https://jsdelivr.net"></script>
     <style>
-        body { background: #222; color: #fff; font-family: sans-serif; text-align: center; }
-        canvas { background: #111; border: 2px solid #555; display: block; margin: 10px auto; }
-        .controls { margin-top: 15px; background: #333; padding: 15px; display: inline-block; border-radius: 8px; }
-        .control-group { margin: 10px 0; }
-        button { padding: 8px 15px; font-size: 16px; cursor: pointer; font-weight: bold; }
-        label { margin: 0 10px; }
+        body { background: #222; color: #fff; font-family: sans-serif; margin: 0; padding: 10px; display: flex; flex-direction: column; align-items: center; }
+        h1 { margin: 5px; font-size: 24px; }
+        .main-container { display: flex; gap: 15px; max-width: 1250px; width: 100%; justify-content: center; }
+        canvas { background: #111; border: 2px solid #555; display: block; cursor: crosshair; }
+        .sidebar { background: #333; padding: 15px; border-radius: 8px; width: 260px; font-size: 14px; box-sizing: border-radius; }
+        .panel { background: #444; padding: 10px; margin-bottom: 12px; border-radius: 6px; }
+        .panel h3 { margin: 0 0 8px 0; font-size: 15px; border-bottom: 1px solid #666; padding-bottom: 3px; color: #44ffff; }
+        .control-group { margin: 8px 0; display: flex; align-items: center; justify-content: space-between; }
+        .control-group label { font-size: 12px; }
+        input[type="number"], select { width: 70px; background: #222; color: #fff; border: 1px solid #666; padding: 3px; border-radius: 4px; }
+        button { width: 100%; padding: 6px; margin-top: 5px; font-size: 13px; cursor: pointer; font-weight: bold; background: #555; color: #fff; border: 1px solid #777; border-radius: 4px; }
+        button:hover { background: #666; }
+        button.primary { background: #007acc; border-color: #0098ff; }
+        button.primary:hover { background: #0098ff; }
+        .hint { font-size: 11px; color: #aaa; margin-top: 4px; line-height: 1.3; }
     </style>
 </head>
 <body>
 
-    <h1>雛ちゃんブレイカー2nd 物理予測テスト</h1>
-    <p>画面解像度: 960 x 540 基準 (75ピクセル = 1ユニット)</p>
+    <h1>雛ちゃんブレイカー2nd 物理エディタ</h1>
     
-    <canvas id="gameCanvas" width="960" height="540"></canvas>
-
-    <div class="controls">
-        <div class="control-group">
-            <label><strong>発射方向:</strong></label>
-            <input type="radio" id="dirLeft" name="direction" value="left" checked>
-            <label for="dirLeft">左から（右向きに発射）</label>
-            <input type="radio" id="dirRight" name="direction" value="right">
-            <label for="dirRight">右から（左向きに発射）</label>
+    <div class="main-container">
+        <!-- シミュレータ画面 -->
+        <div>
+            <canvas id="gameCanvas" width="960" height="540"></canvas>
+            <div style="text-align: left; font-size: 12px; color: #ccc; margin-top: 5px;">
+                操作方法: 画面上の赤い雛ちゃんや、追加したオブジェクトを<strong>ドラッグ</strong>して自由に移動できます。
+            </div>
         </div>
 
-        <div class="control-group">
-            <label><strong>発射の高さ (Yピクセル: 0〜540):</strong></label>
-            <input type="number" id="shootY" value="300" min="50" max="500" style="width: 60px;">
-            <button onclick="resetAndSimulate()">ボールを発射</button>
+        <!-- 操作サイドバー -->
+        <div class="sidebar">
+            <!-- 投擲テストパネル -->
+            <div class="panel">
+                <h3>1. ボール発射テスト</h3>
+                <div class="control-group">
+                    <label>発射方向:</label>
+                    <select id="shootDir">
+                        <option value="left">左から</option>
+                        <option value="right">右から</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>高さY (px):</label>
+                    <input type="number" id="shootY" value="300" min="0" max="540">
+                </div>
+                <button class="primary" onclick="fireBall()">予測・発射</button>
+            </div>
+
+            <!-- オブジェクト追加パネル -->
+            <div class="panel">
+                <h3>2. オブジェクト新規追加</h3>
+                <div class="control-group">
+                    <label>種類:</label>
+                    <select id="objType">
+                        <option value="dynamic">動く(風呂・柱等)</option>
+                        <option value="static">固定(床・壁等)</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>初期X (px):</label>
+                    <input type="number" id="newX" value="300">
+                </div>
+                <div class="control-group">
+                    <label>初期Y (px):</label>
+                    <input type="number" id="newY" value="200">
+                </div>
+                <div class="control-group">
+                    <label>幅W (px):</label>
+                    <input type="number" id="newW" value="50">
+                </div>
+                <div class="control-group">
+                    <label>高H (px):</label>
+                    <input type="number" id="newH" value="80">
+                </div>
+                <button onclick="addObjectFromUI()">指定座標で追加</button>
+                <div class="hint">※追加後、画面上で直接ドラッグしても動かせます。</div>
+            </div>
+
+            <!-- 選択中オブジェクト情報 -->
+            <div class="panel">
+                <h3>3. 選択中の座標数値</h3>
+                <div class="control-group">
+                    <label>オブジェクト:</label>
+                    <span id="selectedName" style="font-size:12px; color:#fffa00;">なし</span>
+                </div>
+                <div class="control-group">
+                    <label>現在X (px):</label>
+                    <input type="number" id="selectedX" readonly style="background:#333; color:#aaa;">
+                </div>
+                <div class="control-group">
+                    <label>現在Y (px):</label>
+                    <input type="number" id="selectedY" readonly style="background:#333; color:#aaa;">
+                </div>
+            </div>
+
+            <button onclick="resetScene()" style="background:#a30000; border-color:#d60000;">全リセット</button>
         </div>
     </div>
 
@@ -41,106 +110,145 @@ const PPU = 75;
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-let world, hinaBody, ballBody;
-const groundY_px = 50; 
+let world;
+let hinaData = { x: 480, y: 150, angle: 0 }; // 雛ちゃんの配置情報退避用
+let customObjects = []; // 追加されたカスタムオブジェクトの配列
+let ballBody = null;
+let activeSimulating = false;
 
-function initWorld() {
-    world = planck.World(planck.Vec2(0.0, -9.81));
+// マウスドラッグ制御用の変数
+let isDragging = false;
+let draggedTarget = null; // 'hina' または customObjects のインデックス
 
-    // 床の作成
-    const ground = world.createBody();
-    ground.createFixture(planck.Edge(
-        planck.Vec2(0 / PPU, groundY_px / PPU),
-        planck.Vec2(960 / PPU, groundY_px / PPU)
-    ), { friction: 0.4, restitution: 0.4 });
+// 初期シーン構築（物理世界を作成せず、配置用の初期データをセット）
+function initScene() {
+    ballBody = null;
+    activeSimulating = false;
+    world = new planck.World(planck.Vec2(0.0, -9.81));
+    
+    // シミュレーション実行用ではなく、配置プレビュー用の枠組み
+    buildPhysicsWorld(false); 
+}
 
-    // 雛ちゃん本体の作成 (Mass: 0.8, GravityScale: 0.8, AngularDrag: 0.05)
-    hinaBody = world.createBody({
-        type: 'dynamic',
-        position: planck.Vec2(480 / PPU, (groundY_px + 10) / PPU), // 画面中央付近の床の上に配置
+// 物理世界を組み立てる関数 (isFullSimulation: 実際に時間を進めて動かすかどうか)
+function buildPhysicsWorld(isFullSimulation) {
+    world = new planck.World(planck.Vec2(0.0, -9.81));
+
+    // 外枠（画面外に落ちる判定用の最低限の地面。本物の床はカスタムオブジェクトで配置させるため、下に仮の枠）
+    const border = world.createBody();
+    border.createFixture(planck.Edge(planck.Vec2(-100, 10/PPU), planck.Vec2(100, 10/PPU)), {friction: 0.5});
+
+    // 1. 雛ちゃんを物理世界に生成
+    const hinaBodyType = isFullSimulation ? 'dynamic' : 'static'; // 配置中は固定、シミュレーション中は動的に
+    const hBody = world.createBody({
+        type: hinaBodyType,
+        position: planck.Vec2(hinaData.x / PPU, hinaData.y / PPU),
+        angle: isFullSimulation ? hinaData.angle : 0,
         linearDrag: 0.0,
         angularDrag: 0.05,
         gravityScale: 0.8
     });
+    hBody.createFixture(planck.Box(0.3 / 2, 0.7 / 2, planck.Vec2(0, -0.02), 0), { 
+        density: 0.8, friction: 0.3, restitution: 0.5 
+    });
+    hBody.setUserData({ id: 'hina' });
 
-    // 雛ちゃんの四角形コライダー (Size: 0.3 x 0.7)
-    hinaBody.createFixture(planck.Box(
-        0.3 / 2, 
-        0.7 / 2, 
-        planck.Vec2(0, -0.02),
-        0
-    ), { density: 0.8, friction: 0.3, restitution: 0.5 });
+    // 2. カスタムオブジェクト群を物理世界に生成
+    customObjects.forEach((obj, index) => {
+        // 配置中は動く物も全て static(固定) にして重力で落ちないようにする
+        const bType = isFullSimulation ? obj.type : 'static';
+        
+        const body = world.createBody({
+            type: bType,
+            position: planck.Vec2(obj.x / PPU, obj.y / PPU),
+            angle: isFullSimulation ? obj.angle : 0,
+            angularDrag: 2.0 // 風呂や柱はボールよりは回転しにくいように仮設定
+        });
+        
+        // 四角形コライダー
+        body.createFixture(planck.Box((obj.w / PPU) / 2, (obj.h / PPU) / 2), {
+            density: obj.type === 'dynamic' ? 1.5 : 0.0, // 動くオブジェクトは少し重め(1.5)に設定
+            friction: 0.4,
+            restitution: 0.3
+        });
+        body.setUserData({ id: 'custom', index: index });
+    });
 }
 
-function spawnBall(shootY_px, isLeft) {
-    // 左右の選択によって初期X座標を決定 (左端は50px、右端は910pxの位置から)
-    const launchX_px = isLeft ? 50 : 910;
+// UIからカスタムオブジェクトを追加
+function addObjectFromUI() {
+    const type = document.getElementById('objType').value;
+    const x = parseFloat(document.getElementById('newX').value);
+    const y = parseFloat(document.getElementById('newY').value);
+    const w = parseFloat(document.getElementById('newW').value);
+    const h = parseFloat(document.getElementById('newH').value);
 
+    customObjects.push({ type, x, y, w, h, angle: 0 });
+    initScene();
+}
+
+// ボールを発射（シミュレーション開始）
+function fireBall() {
+    // 1. 配置データを維持したまま、物理世界を「動的モード」で再ビルド
+    buildPhysicsWorld(true);
+
+    const shootY = parseFloat(document.getElementById('shootY').value);
+    const dir = document.getElementById('shootDir').value;
+    const isLeft = (dir === 'left');
+    const launchX_px = isLeft ? 30 : 930;
+
+    // 2. ボール生成
     ballBody = world.createBody({
         type: 'dynamic',
-        position: planck.Vec2(launchX_px / PPU, shootY_px / PPU),
-        linearDrag: 0.0,
-        angularDrag: 10.0,
-        gravityScale: 1.0 
+        position: planck.Vec2(launchX_px / PPU, shootY / PPU),
+        angularDrag: 10.0
     });
-
     ballBody.createFixture(planck.Circle(0.22), { 
-        density: 1.0, friction: 0.0, restitution: 0.6
+        density: 1.0, friction: 0.0, restitution: 0.6 
     });
 
-    // 左右の選択によって速度ベクトルの向きを反転 (仮の速度値: 20)
-    const velocityX = isLeft ? 20.0 : -20.0;
-    ballBody.setLinearVelocity(planck.Vec2(velocityX, 0.0));
+    const velocityX = isLeft ? 22.0 : -22.0; // 仮の初速
+    ballBody.setLinearVelocity(planck.Vec2(velocityX, -2.0)); // わずかに下向きに発射
+
+    activeSimulating = true;
 }
 
-function draw() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+// シーン全体を初期状態にリセット
+function resetScene() {
+    customObjects = [];
+    hinaData = { x: 480, y: 150, angle: 0 };
+    document.getElementById('selectedName').innerText = "なし";
+    document.getElementById('selectedX').value = "";
+    document.getElementById('selectedY').value = "";
+    initScene();
+}
 
-    // 床
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(0, canvas.height - groundY_px);
-    ctx.lineTo(canvas.width, canvas.height - groundY_px);
-    ctx.stroke();
+// マウス座標からオブジェクトをキャッチする判定
+function getMousePos(e) {
+    const rect = canvas.getBoundingClientRect();
+    // キャンバス上のピクセル座標（Unityと同じく下を0、上を540にするためY軸反転）
+    return {
+        x: e.clientX - rect.left,
+        y: canvas.height - (e.clientY - rect.top)
+    };
+}
 
-    // 雛ちゃん (赤色)
-    if (hinaBody) {
-        const pos = hinaBody.getPosition();
-        const angle = hinaBody.getAngle();
-        ctx.save();
-        ctx.translate(pos.x * PPU, canvas.height - (pos.y * PPU));
-        ctx.rotate(-angle);
-        ctx.fillStyle = '#ff4444';
-        ctx.fillRect(-(0.3 * PPU) / 2, -(0.7 * PPU) / 2, 0.3 * PPU, 0.7 * PPU);
-        ctx.restore();
+canvas.addEventListener('mousedown', (e) => {
+    if (activeSimulating) return; // シミュレーション中はドラッグ不可
+    const mouse = getMousePos(e);
+
+    // 1. 雛ちゃんとの当たり判定 (幅0.3ユニット=22.5px, 高0.7ユニット=52.5px)
+    if (Math.abs(mouse.x - hinaData.x) < 20 && Math.abs(mouse.y - hinaData.y) < 30) {
+        isDragging = true;
+        draggedTarget = 'hina';
+        updateUISelection("雛ちゃん", hinaData.x, hinaData.y);
+        return;
     }
 
-    // ボール (水色)
-    if (ballBody) {
-        const pos = ballBody.getPosition();
-        ctx.beginPath();
-        ctx.arc(pos.x * PPU, canvas.height - (pos.y * PPU), 0.22 * PPU, 0, 2 * Math.PI);
-        ctx.fillStyle = '#44ffff';
-        ctx.fill();
-    }
-}
-
-function animate() {
-    world.step(1 / 60);
-    draw();
-    requestAnimationFrame(animate);
-}
-
-function resetAndSimulate() {
-    const shootY = parseFloat(document.getElementById('shootY').value);
-    const isLeft = document.getElementById('dirLeft').checked; // ラジオボタンの状態を取得
-    initWorld();
-    spawnBall(shootY, isLeft);
-}
-
-initWorld();
-animate();
-</script>
-</body>
-</html>
+    // 2. カスタムオブジェクトとの当たり判定 (逆順で手前のものから)
+    for (let i = customObjects.length - 1; i >= 0; i--) {
+        const obj = customObjects[i];
+        if (Math.abs(mouse.x - obj.x) < obj.w/2 && Math.abs(mouse.y - obj.y) < obj.h/2) {
+            isDragging = true;
+            draggedTarget = i;
+updateUISelection(${obj.type === 'static' ? '固定' : '動く'}ブロック[${i}], obj.x, obj.y);return;}}});canvas.addEventListener('mousemove', (e) => {if (!isDragging) return;const mouse = getMousePos(e);if (draggedTarget === 'hina') {hinaData.x = Math.round(mouse.x);hinaData.y = Math.round(mouse.y);updateUISelection("雛ちゃん", hinaData.x, hinaData.y);} else if (typeof draggedTarget === 'number') {customObjects[draggedTarget].x = Math.round(mouse.x);customObjects[draggedTarget].y = Math.round(mouse.y);const obj = customObjects[draggedTarget];updateUISelection(${obj.type === 'static' ? '固定' : '動く'}ブロック[${draggedTarget}], obj.x, obj.y);}// 静的表示用に最描画buildPhysicsWorld(false);});window.addEventListener('mouseup', () => {isDragging = false;});function updateUISelection(name, x, y) {document.getElementById('selectedName').innerText = name;document.getElementById('selectedX').value = x;document.getElementById('selectedY').value = y;}// 物理世界を描画する関数function draw() {ctx.clearRect(0, 0, canvas.width, canvas.height);// 床・壁・オブジェクトの描画for (let b = world.getBodyList(); b; b = b.getNext()) {const uData = b.getUserData();const pos = b.getPosition();const angle = b.getAngle();ctx.save();ctx.translate(pos.x * PPU, canvas.height - (pos.y * PPU));ctx.rotate(-angle);if (uData && uData.id === 'hina') {// 雛ちゃん (赤色)ctx.fillStyle = '#ff4444';ctx.fillRect(-(0.3 * PPU) / 2, -(0.7 * PPU) / 2, 0.3 * PPU, 0.7 * PPU);} else if (uData && uData.id === 'custom') {// 追加オブジェクト (固定はグレー、動くものは緑)const obj = customObjects[uData.index];ctx.fillStyle = (obj.type === 'static') ? '#777777' : '#44aa44';ctx.fillRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);// 識別用テキストctx.rotate(angle);ctx.fillStyle = '#fff';ctx.font = '10px sans-serif';ctx.fillText(uData.index, -3, 3);}ctx.restore();}// ボール (水色)if (ballBody) {const pos = ballBody.getPosition();ctx.beginPath();ctx.arc(pos.x * PPU, canvas.height - (pos.y * PPU), 0.22 * PPU, 0, 2 * Math.PI);ctx.fillStyle = '#44ffff';ctx.fill();}}// ループ処理function animate() {if (activeSimulating) {world.step(1 / 60); // シミュレーション中のみ物理時間を進める}draw();requestAnimationFrame(animate);}// 初回起動initScene();animate();
