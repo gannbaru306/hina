@@ -11,13 +11,19 @@
         
         .main-container { display: flex; gap: 12px; max-width: 1250px; width: 100%; justify-content: center; align-items: flex-start; }
         
-        /* 左側：キャンバスとリセットボタンエリア */
+        /* 左側：キャンバスとリセット＆手動発射エリア */
         .canvas-area { display: flex; flex-direction: column; width: 920px; }
         canvas { background: #111; border: 2px solid #555; display: block; cursor: crosshair; touch-action: none; width: 920px; height: 500px; }
         
-        .bottom-bar { display: flex; gap: 10px; margin-top: 6px; align-items: center; justify-content: space-between; }
-        .reset-group { display: flex; gap: 8px; }
-        .reset-group button { width: 150px; padding: 6px; margin: 0; font-size: 12px; }
+        .bottom-bar { display: flex; gap: 8px; margin-top: 6px; align-items: center; justify-content: space-between; }
+        .reset-group { display: flex; gap: 6px; }
+        .reset-group button { padding: 5px 10px; font-size: 11px; width: auto; margin: 0; }
+
+        /* 手動指定発射フォーム（コンパクト） */
+        .manual-launch-group { display: flex; align-items: center; gap: 5px; background: #333; padding: 4px 8px; border-radius: 4px; border: 1px solid #555; font-size: 11px; }
+        .manual-launch-group select, .manual-launch-group input { font-size: 11px; padding: 2px 4px; }
+        .manual-launch-group button { width: auto; padding: 3px 8px; margin: 0; font-size: 11px; background: #0077aa; border-color: #0099cc; }
+        .manual-launch-group button:hover { background: #0088cc; }
 
         /* 右側：サイドバーコントロール */
         .sidebar { background: #333; padding: 10px; border-radius: 8px; width: 300px; font-size: 13px; display: flex; flex-direction: column; gap: 8px; }
@@ -72,10 +78,22 @@
             
             <div class="bottom-bar">
                 <div class="reset-group">
-                    <button class="btn-reset-pos" onclick="resetPositions()">配置位置をリセット</button>
-                    <button class="btn-reset-all" onclick="resetScene()">ステージ全リセット</button>
+                    <button class="btn-reset-pos" onclick="resetPositions()">配置リセット</button>
+                    <button class="btn-reset-all" onclick="resetScene()">全リセット</button>
                 </div>
-                <div id="modeHint" style="font-size: 12px; color: #fffa00; font-weight: bold;">
+
+                <div class="manual-launch-group">
+                    <select id="manualType" onchange="updateManualAxisLabel()">
+                        <option value="ball_left">左ボール</option>
+                        <option value="ball_right">右ボール</option>
+                        <option value="box">ボックス</option>
+                    </select>
+                    <span id="manualAxisLabel">Y:</span>
+                    <input type="number" id="manualPosVal" value="250" style="width: 48px;">
+                    <button onclick="launchFromManualUI()">発射</button>
+                </div>
+
+                <div id="modeHint" style="font-size: 11px; color: #fffa00; font-weight: bold;">
                     モード: ドラッグ移動
                 </div>
             </div>
@@ -272,6 +290,29 @@ function setActionMode(mode) {
     }
 }
 
+function updateManualAxisLabel() {
+    const type = document.getElementById('manualType').value;
+    const label = document.getElementById('manualAxisLabel');
+    if (type === 'box') {
+        label.innerText = 'X:';
+    } else {
+        label.innerText = 'Y:';
+    }
+}
+
+function launchFromManualUI() {
+    const type = document.getElementById('manualType').value;
+    const val = parseFloat(document.getElementById('manualPosVal').value) || 0;
+
+    if (type === 'ball_left') {
+        fireBallAtY(val, true);
+    } else if (type === 'ball_right') {
+        fireBallAtY(val, false);
+    } else if (type === 'box') {
+        dropBoxAtX(val);
+    }
+}
+
 function fireBallAtY(targetY, isLeft) {
     if (!isPlaying) {
         isPlaying = true;
@@ -397,7 +438,6 @@ function simulateKillTurns(type, params) {
         });
     });
 
-    // 最大5ターンまで同じ位置に投下・発射を繰り返して倒せるか判定
     for (let turn = 1; turn <= 5; turn++) {
         if (type === 'ball') {
             const launchX = params.isLeft ? 30 : 890;
@@ -415,20 +455,18 @@ function simulateKillTurns(type, params) {
             box.createFixture(planck.Box((40 / PPU) / 2, (40 / PPU) / 2), { density: 3.0, friction: 0.5, restitution: 0.1 });
         }
 
-        // 1ターン分の物理ステップ（約3秒間）
         for (let f = 0; f < 180; f++) {
             simWorld.step(1 / 60);
             let hPos = simHina.getPosition();
-            if (hPos.y < 0) return turn; // 撃破ターン数を返す
+            if (hPos.y < 0) return turn;
         }
     }
-    return 0; // 5ターン以内に撃破できず
+    return 0;
 }
 
 function getGroupedRanges(items, step) {
     if (items.length === 0) return [];
     
-    // ターン数ごとにグループ分け
     let byTurns = {};
     items.forEach(item => {
         if (!byTurns[item.turns]) byTurns[item.turns] = [];
@@ -624,25 +662,30 @@ function draw() {
         ctx.restore();
     });
 
-    // 🟡 成功マーカー描画
-    ctx.fillStyle = '#ffff00';
-    ctx.strokeStyle = '#ffff00';
+    // 🟡 ワンキル(1ターン) ＝ 黄色 (#ffff00)
+    // 🟣 マルチターン(2ターン以上) ＝ 紫色 (#aa00ff)
 
+    // 左ボール
     rawSearchResults.ball_left.forEach(item => {
+        ctx.fillStyle = (item.turns === 1) ? '#ffff00' : '#aa00ff';
         ctx.beginPath();
         ctx.arc(30, canvas.height - item.val, 5, 0, 2 * Math.PI);
         ctx.fill();
     });
 
+    // 右ボール
     rawSearchResults.ball_right.forEach(item => {
+        ctx.fillStyle = (item.turns === 1) ? '#ffff00' : '#aa00ff';
         ctx.beginPath();
         ctx.arc(890, canvas.height - item.val, 5, 0, 2 * Math.PI);
         ctx.fill();
     });
 
+    // ボックス (線)
     const boxRanges = getGroupedRanges(rawSearchResults.box, 8);
     ctx.lineWidth = 6;
     boxRanges.forEach(r => {
+        ctx.strokeStyle = (r.turns === 1) ? '#ffff00' : '#aa00ff';
         ctx.beginPath();
         ctx.moveTo(r.start, canvas.height - 480);
         ctx.lineTo(r.end + 8, canvas.height - 480);
@@ -654,7 +697,6 @@ function animate() {
     if (isPlaying) {
         world.step(1 / 60);
 
-        // 雛ちゃんが画面下に落ちたかを判定して自動停止＆リセット
         if (hinaBodyRef) {
             const hPos = hinaBodyRef.getPosition();
             if (hPos.y < 0) {
