@@ -5,64 +5,61 @@
     <title>雛ブレ2nd 物理予測エディタ</title>
     <script src="https://cdn.jsdelivr.net/npm/planck-js@0.3.27/dist/planck.min.js"></script>
     <style>
-        body { background: #222; color: #fff; font-family: sans-serif; margin: 0; padding: 10px; display: flex; flex-direction: column; align-items: center; }
-        h1 { margin: 5px; font-size: 24px; }
-        .main-container { display: flex; gap: 15px; max-width: 1250px; width: 100%; justify-content: center; }
-        canvas { background: #111; border: 2px solid #555; display: block; cursor: crosshair; touch-action: none; }
-        .sidebar { background: #333; padding: 15px; border-radius: 8px; width: 280px; font-size: 14px; box-sizing: border-box; }
-        .panel { background: #444; padding: 10px; margin-bottom: 12px; border-radius: 6px; }
-        .panel h3 { margin: 0 0 8px 0; font-size: 15px; border-bottom: 1px solid #666; padding-bottom: 3px; color: #44ffff; }
+        * { box-sizing: border-box; }
+        body { background: #222; color: #fff; font-family: sans-serif; margin: 0; padding: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; overflow: hidden; }
+        h1 { margin: 0 0 8px 0; font-size: 20px; text-align: center; }
+        
+        .main-container { display: flex; gap: 12px; max-width: 1250px; width: 100%; justify-content: center; align-items: flex-start; }
+        
+        /* 左側：キャンバスとリセットボタンエリア */
+        .canvas-area { display: flex; flex-direction: column; width: 920px; }
+        canvas { background: #111; border: 2px solid #555; display: block; cursor: crosshair; touch-action: none; width: 920px; height: 500px; }
+        
+        .bottom-bar { display: flex; gap: 10px; margin-top: 6px; align-items: center; justify-content: space-between; }
+        .reset-group { display: flex; gap: 8px; }
+        .reset-group button { width: 150px; padding: 6px; margin: 0; font-size: 12px; }
+
+        /* 右側：サイドバーコントロール */
+        .sidebar { background: #333; padding: 10px; border-radius: 8px; width: 300px; font-size: 13px; display: flex; flex-direction: column; gap: 8px; }
+        .panel { background: #444; padding: 8px; border-radius: 6px; }
+        .panel h3 { margin: 0 0 6px 0; font-size: 13px; border-bottom: 1px solid #666; padding-bottom: 2px; color: #44ffff; }
         .panel.ai-panel { border: 1px solid #00ffcc; }
         .panel.ai-panel h3 { color: #00ffcc; border-bottom-color: #008866; }
-        .control-group { margin: 8px 0; display: flex; align-items: center; justify-content: space-between; }
-        .control-group label { font-size: 12px; }
-        input[type="number"], select { width: 75px; background: #222; color: #fff; border: 1px solid #666; padding: 3px; border-radius: 4px; }
-        button { width: 100%; padding: 6px; margin-top: 5px; font-size: 13px; cursor: pointer; font-weight: bold; background: #555; color: #fff; border: 1px solid #777; border-radius: 4px; }
+        
+        .control-group { margin: 4px 0; display: flex; align-items: center; justify-content: space-between; }
+        .control-group label { font-size: 11px; }
+        input[type="number"], select { width: 70px; background: #222; color: #fff; border: 1px solid #666; padding: 2px; border-radius: 4px; font-size: 12px; }
+        
+        button { width: 100%; padding: 5px; margin-top: 4px; font-size: 12px; cursor: pointer; font-weight: bold; background: #555; color: #fff; border: 1px solid #777; border-radius: 4px; }
         button:hover { background: #666; }
         
-        .square-btn-container { display: flex; gap: 10px; margin-bottom: 8px; }
+        .square-btn-container { display: flex; gap: 8px; margin-bottom: 4px; }
         .square-btn {
             width: 100%;
-            height: 55px;
-            font-size: 12px;
+            height: 42px;
+            font-size: 11px;
             display: flex;
-            flex-direction: column;
             align-items: center;
             justify-content: center;
+            gap: 4px;
             background: #333;
             border: 2px solid #666;
             border-radius: 6px;
             cursor: pointer;
             user-select: none;
-            transition: all 0.2s ease;
         }
-        .square-btn.active-ball {
-            background: #005588;
-            border-color: #00ccff;
-            color: #00ffff;
-            box-shadow: 0 0 8px #00ccff;
-        }
-        .square-btn.active-box {
-            background: #884400;
-            border-color: #ff9900;
-            color: #ffcc00;
-            box-shadow: 0 0 8px #ff9900;
-        }
-        .square-btn span { font-size: 18px; margin-bottom: 2px; }
+        .square-btn.active-ball { background: #005588; border-color: #00ccff; color: #00ffff; box-shadow: 0 0 6px #00ccff; }
+        .square-btn.active-box { background: #884400; border-color: #ff9900; color: #ffcc00; box-shadow: 0 0 6px #ff9900; }
 
-        button.play-pause { background: #27ae60; border-color: #2ecc71; margin-bottom: 8px; font-size: 14px; }
+        button.play-pause { background: #27ae60; border-color: #2ecc71; margin-bottom: 4px; font-size: 12px; }
         button.play-pause.paused { background: #e67e22; border-color: #f39c12; }
 
         button.ai { background: #008844; border-color: #00cc66; }
-        button.ai:hover { background: #00aa55; }
-        button.reset-marker { background: #886600; border-color: #bb9900; margin-top: 8px; }
-        button.reset-marker:hover { background: #aa8800; }
+        button.reset-marker { background: #886600; border-color: #bb9900; margin-top: 4px; }
+        .btn-reset-pos { background: #d35400; border-color: #e67e22; }
+        .btn-reset-all { background: #a30000; border-color: #d60000; }
         
-        .btn-reset-pos { background: #d35400; border-color: #e67e22; margin-bottom: 5px; }
-        .btn-reset-pos:hover { background: #e67e22; }
-        
-        .hint { font-size: 11px; color: #aaa; margin-top: 4px; line-height: 1.3; }
-        .result-box { margin-top: 8px; font-size: 11px; color: #00ffcc; max-height: 120px; overflow-y: auto; background: #181818; padding: 6px; border-radius: 4px; border: 1px solid #333; line-height: 1.4; }
+        .result-box { margin-top: 4px; font-size: 11px; color: #00ffcc; height: 95px; overflow-y: auto; background: #181818; padding: 4px; border-radius: 4px; border: 1px solid #333; line-height: 1.3; }
     </style>
 </head>
 <body>
@@ -70,10 +67,17 @@
     <h1>雛ちゃんブレイカー2nd 物理予測エディタ</h1>
     
     <div class="main-container">
-        <div>
-            <canvas id="gameCanvas" width="960" height="540"></canvas>
-            <div id="modeHint" style="text-align: left; font-size: 12px; color: #fffa00; margin-top: 5px; font-weight: bold;">
-                モード: ドラッグ移動 (オブジェクトを直接移動できます)
+        <div class="canvas-area">
+            <canvas id="gameCanvas" width="920" height="500"></canvas>
+            
+            <div class="bottom-bar">
+                <div class="reset-group">
+                    <button class="btn-reset-pos" onclick="resetPositions()">配置位置をリセット</button>
+                    <button class="btn-reset-all" onclick="resetScene()">ステージ全リセット</button>
+                </div>
+                <div id="modeHint" style="font-size: 12px; color: #fffa00; font-weight: bold;">
+                    モード: ドラッグ移動
+                </div>
             </div>
         </div>
 
@@ -90,25 +94,22 @@
                         <span>🟧</span>ボックス
                     </div>
                 </div>
-                <div class="hint">
-                    ボール/ボックス選択後に画面タップで即時発射されます。
-                </div>
             </div>
 
             <div class="panel ai-panel">
-                <h3>🤖 ワンキル自動探索</h3>
+                <h3>🤖 自動探索 (最大5ターン)</h3>
                 <div class="control-group">
                     <label>探索対象:</label>
                     <select id="searchTarget">
-                        <option value="all">全ての項目 (ボール＋ボックス)</option>
-                        <option value="ball_both">ボール (左右両方)</option>
-                        <option value="ball_left">ボール (左のみ)</option>
-                        <option value="ball_right">ボール (右のみ)</option>
-                        <option value="box">ボックス (上空全域)</option>
+                        <option value="all">全項目 (ボール＋ボックス)</option>
+                        <option value="ball_both">ボール (左右)</option>
+                        <option value="ball_left">ボール (左)</option>
+                        <option value="ball_right">ボール (右)</option>
+                        <option value="box">ボックス (上空)</option>
                     </select>
                 </div>
                 <button class="ai" onclick="runAutoSearch()">自動探索を実行</button>
-                <button class="reset-marker" onclick="clearMarkers()">マーカー表示をクリア</button>
+                <button class="reset-marker" onclick="clearMarkers()">マーカー表示クリア</button>
                 <div id="searchResult" class="result-box">探索結果がここに表示されます</div>
             </div>
 
@@ -117,44 +118,41 @@
                 <div class="control-group">
                     <label>種類:</label>
                     <select id="objType">
-                        <option value="dynamic">動く(風呂・柱等)</option>
-                        <option value="static">固定(床・壁等)</option>
+                        <option value="dynamic">動く(柱等)</option>
+                        <option value="static">固定(床等)</option>
                     </select>
                 </div>
                 <div class="control-group">
                     <label>初期X / Y:</label>
                     <div>
-                        <input type="number" id="newX" value="480" style="width:35px;">
-                        <input type="number" id="newY" value="100" style="width:35px;">
+                        <input type="number" id="newX" value="460" style="width:32px;">
+                        <input type="number" id="newY" value="100" style="width:32px;">
                     </div>
                 </div>
                 <div class="control-group">
                     <label>幅W / 高H:</label>
                     <div>
-                        <input type="number" id="newW" value="200" style="width:35px;">
-                        <input type="number" id="newH" value="20" style="width:35px;">
+                        <input type="number" id="newW" value="180" style="width:32px;">
+                        <input type="number" id="newH" value="20" style="width:32px;">
                     </div>
                 </div>
                 <button onclick="addObjectFromUI()">オブジェクト追加</button>
             </div>
 
             <div class="panel">
-                <h3>3. 選択座標</h3>
+                <h3>3. 選択情報</h3>
                 <div class="control-group">
                     <label>名前:</label>
-                    <span id="selectedName" style="font-size:12px; color:#fffa00;">なし</span>
+                    <span id="selectedName" style="font-size:11px; color:#fffa00;">なし</span>
                 </div>
                 <div class="control-group">
                     <label>現在X / Y:</label>
                     <div>
-                        <input type="number" id="selectedX" readonly style="background:#333; color:#aaa; width:35px;">
-                        <input type="number" id="selectedY" readonly style="background:#333; color:#aaa; width:35px;">
+                        <input type="number" id="selectedX" readonly style="background:#333; color:#aaa; width:32px;">
+                        <input type="number" id="selectedY" readonly style="background:#333; color:#aaa; width:32px;">
                     </div>
                 </div>
             </div>
-
-            <button class="btn-reset-pos" onclick="resetPositions()">配置位置をリセット</button>
-            <button onclick="resetScene()" style="background:#a30000; border-color:#d60000;">ステージ全リセット</button>
         </div>
     </div>
 
@@ -164,10 +162,11 @@ const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
 let world;
-let hinaData = { x: 480, y: 200, angle: 0 };
+let hinaData = { x: 460, y: 200, angle: 0 };
 let customObjects = [];
 let isPlaying = false; 
 let spawnedBodies = [];
+let hinaBodyRef = null;
 
 let currentActionMode = 'drag';
 let rawSearchResults = { ball_left: [], ball_right: [], box: [] };
@@ -185,9 +184,8 @@ function initScene() {
 function buildPhysicsWorld(isFullSimulation) {
     world = new planck.World(planck.Vec2(0.0, -9.81));
 
-    // 雛ちゃん
     const hinaBodyType = isFullSimulation ? 'dynamic' : 'static';
-    const hBody = world.createBody({
+    hinaBodyRef = world.createBody({
         type: hinaBodyType,
         position: planck.Vec2(hinaData.x / PPU, hinaData.y / PPU),
         angle: hinaData.angle,
@@ -195,22 +193,19 @@ function buildPhysicsWorld(isFullSimulation) {
         angularDrag: 0.1,
         gravityScale: 1.0
     });
-    hBody.createFixture(planck.Box(0.3 / 2, 0.7 / 2), { 
+    hinaBodyRef.createFixture(planck.Box(0.3 / 2, 0.7 / 2), { 
         density: 1.0, friction: 0.4, restitution: 0.2 
     });
-    hBody.setUserData({ id: 'hina' });
+    hinaBodyRef.setUserData({ id: 'hina' });
 
-    // カスタムオブジェクト
     customObjects.forEach((obj, index) => {
         const bType = isFullSimulation ? obj.type : 'static';
-        
         const body = world.createBody({
             type: bType,
             position: planck.Vec2(obj.x / PPU, obj.y / PPU),
             angle: obj.angle,
             angularDrag: 1.0
         });
-        
         body.createFixture(planck.Box((obj.w / PPU) / 2, (obj.h / PPU) / 2), {
             density: obj.type === 'dynamic' ? 2.0 : 0.0,
             friction: 0.5,
@@ -220,7 +215,6 @@ function buildPhysicsWorld(isFullSimulation) {
     });
 }
 
-// 物理の「動く(dynamic)/止まる(static)」のみを切り替えて運動エネルギーを保持する
 function setBodiesMotionState(enable) {
     if (!world) return;
     for (let b = world.getBodyList(); b; b = b.getNext()) {
@@ -236,7 +230,6 @@ function setBodiesMotionState(enable) {
     }
 }
 
-// 再生/停止 トグル
 function togglePlayPause() {
     isPlaying = !isPlaying;
     setBodiesMotionState(isPlaying);
@@ -270,12 +263,12 @@ function setActionMode(mode) {
 
     if (currentActionMode === 'ball') {
         btnBall.classList.add('active-ball');
-        hint.innerText = "モード: ボール発射 (タップ座標の高さから左右近い方へ飛びます)";
+        hint.innerText = "モード: ボール発射";
     } else if (currentActionMode === 'box') {
         btnBox.classList.add('active-box');
-        hint.innerText = "モード: ボックス落下 (タップ座標のX位置の上空から落とします)";
+        hint.innerText = "モード: ボックス落下";
     } else {
-        hint.innerText = "モード: ドラッグ移動 (オブジェクトを直接移動できます)";
+        hint.innerText = "モード: ドラッグ移動";
     }
 }
 
@@ -286,7 +279,7 @@ function fireBallAtY(targetY, isLeft) {
         updatePlayPauseButton();
     }
 
-    const launchX_px = isLeft ? 30 : 930;
+    const launchX_px = isLeft ? 30 : 890;
 
     const ball = world.createBody({
         type: 'dynamic',
@@ -299,6 +292,8 @@ function fireBallAtY(targetY, isLeft) {
     const velocityX = isLeft ? 20.0 : -20.0;
     ball.setLinearVelocity(planck.Vec2(velocityX, -1.0));
     spawnedBodies.push({ body: ball, type: 'ball' });
+
+    setActionMode('drag');
 }
 
 function dropBoxAtX(targetX) {
@@ -310,7 +305,7 @@ function dropBoxAtX(targetX) {
     
     const box = world.createBody({
         type: 'dynamic',
-        position: planck.Vec2(targetX / PPU, 520 / PPU)
+        position: planck.Vec2(targetX / PPU, 480 / PPU)
     });
     box.createFixture(planck.Box((40 / PPU) / 2, (40 / PPU) / 2), {
         density: 3.0,
@@ -319,9 +314,10 @@ function dropBoxAtX(targetX) {
     });
 
     spawnedBodies.push({ body: box, type: 'box' });
+
+    setActionMode('drag');
 }
 
-// 明示的に初期配置状態へ引き戻す
 function resetPositions() {
     spawnedBodies = [];
     isPlaying = false;
@@ -331,7 +327,7 @@ function resetPositions() {
 
 function resetScene() {
     customObjects = [];
-    hinaData = { x: 480, y: 200, angle: 0 };
+    hinaData = { x: 460, y: 200, angle: 0 };
     clearMarkers();
     document.getElementById('selectedName').innerText = "なし";
     document.getElementById('selectedX').value = "";
@@ -339,31 +335,34 @@ function resetScene() {
     initScene();
 }
 
-// --- 自動探索 ---
+// --- 自動探索（最大5ターン判定） ---
 function runAutoSearch() {
     const target = document.getElementById('searchTarget').value;
     rawSearchResults = { ball_left: [], ball_right: [], box: [] };
 
     if (target === 'all' || target === 'ball_both' || target === 'ball_left') {
-        for (let y = 0; y <= 540; y += 4) {
-            if (simulateOneKill('ball', { isLeft: true, y: y })) {
-                rawSearchResults.ball_left.push(y);
+        for (let y = 0; y <= 500; y += 4) {
+            const turns = simulateKillTurns('ball', { isLeft: true, y: y });
+            if (turns > 0) {
+                rawSearchResults.ball_left.push({ val: y, turns: turns });
             }
         }
     }
 
     if (target === 'all' || target === 'ball_both' || target === 'ball_right') {
-        for (let y = 0; y <= 540; y += 4) {
-            if (simulateOneKill('ball', { isLeft: false, y: y })) {
-                rawSearchResults.ball_right.push(y);
+        for (let y = 0; y <= 500; y += 4) {
+            const turns = simulateKillTurns('ball', { isLeft: false, y: y });
+            if (turns > 0) {
+                rawSearchResults.ball_right.push({ val: y, turns: turns });
             }
         }
     }
 
     if (target === 'all' || target === 'box') {
-        for (let x = 0; x <= 960; x += 8) {
-            if (simulateOneKill('box', { x: x })) {
-                rawSearchResults.box.push(x);
+        for (let x = 0; x <= 920; x += 8) {
+            const turns = simulateKillTurns('box', { x: x });
+            if (turns > 0) {
+                rawSearchResults.box.push({ val: x, turns: turns });
             }
         }
     }
@@ -371,7 +370,7 @@ function runAutoSearch() {
     displaySearchResults(rawSearchResults);
 }
 
-function simulateOneKill(type, params) {
+function simulateKillTurns(type, params) {
     let simWorld = new planck.World(planck.Vec2(0.0, -9.81));
 
     let simHina = simWorld.createBody({
@@ -398,69 +397,94 @@ function simulateOneKill(type, params) {
         });
     });
 
-    if (type === 'ball') {
-        const launchX = params.isLeft ? 30 : 930;
-        let ball = simWorld.createBody({
-            type: 'dynamic',
-            position: planck.Vec2(launchX / PPU, params.y / PPU)
-        });
-        ball.createFixture(planck.Circle(0.22), { density: 1.5, friction: 0.2, restitution: 0.5 });
-        ball.setLinearVelocity(planck.Vec2(params.isLeft ? 20.0 : -20.0, -1.0));
-    } else if (type === 'box') {
-        let box = simWorld.createBody({
-            type: 'dynamic',
-            position: planck.Vec2(params.x / PPU, 520 / PPU)
-        });
-        box.createFixture(planck.Box((40 / PPU) / 2, (40 / PPU) / 2), { density: 3.0, friction: 0.5, restitution: 0.1 });
-    }
+    // 最大5ターンまで同じ位置に投下・発射を繰り返して倒せるか判定
+    for (let turn = 1; turn <= 5; turn++) {
+        if (type === 'ball') {
+            const launchX = params.isLeft ? 30 : 890;
+            let ball = simWorld.createBody({
+                type: 'dynamic',
+                position: planck.Vec2(launchX / PPU, params.y / PPU)
+            });
+            ball.createFixture(planck.Circle(0.22), { density: 1.5, friction: 0.2, restitution: 0.5 });
+            ball.setLinearVelocity(planck.Vec2(params.isLeft ? 20.0 : -20.0, -1.0));
+        } else if (type === 'box') {
+            let box = simWorld.createBody({
+                type: 'dynamic',
+                position: planck.Vec2(params.x / PPU, 480 / PPU)
+            });
+            box.createFixture(planck.Box((40 / PPU) / 2, (40 / PPU) / 2), { density: 3.0, friction: 0.5, restitution: 0.1 });
+        }
 
-    for (let f = 0; f < 180; f++) {
-        simWorld.step(1 / 60);
-        let hPos = simHina.getPosition();
-        if (hPos.y < 0) return true;
-    }
-    return false;
-}
-
-function getRanges(arr, step) {
-    if (arr.length === 0) return [];
-    let ranges = [];
-    let start = arr[0];
-    let prev = arr[0];
-
-    for (let i = 1; i < arr.length; i++) {
-        if (arr[i] === prev + step) {
-            prev = arr[i];
-        } else {
-            ranges.push({ start, end: prev });
-            start = arr[i];
-            prev = arr[i];
+        // 1ターン分の物理ステップ（約3秒間）
+        for (let f = 0; f < 180; f++) {
+            simWorld.step(1 / 60);
+            let hPos = simHina.getPosition();
+            if (hPos.y < 0) return turn; // 撃破ターン数を返す
         }
     }
-    ranges.push({ start, end: prev });
-    return ranges;
+    return 0; // 5ターン以内に撃破できず
+}
+
+function getGroupedRanges(items, step) {
+    if (items.length === 0) return [];
+    
+    // ターン数ごとにグループ分け
+    let byTurns = {};
+    items.forEach(item => {
+        if (!byTurns[item.turns]) byTurns[item.turns] = [];
+        byTurns[item.turns].push(item.val);
+    });
+
+    let results = [];
+    Object.keys(byTurns).forEach(t => {
+        let arr = byTurns[t];
+        let start = arr[0];
+        let prev = arr[0];
+
+        for (let i = 1; i < arr.length; i++) {
+            if (arr[i] === prev + step) {
+                prev = arr[i];
+            } else {
+                results.push({ start, end: prev, turns: parseInt(t) });
+                start = arr[i];
+                prev = arr[i];
+            }
+        }
+        results.push({ start, end: prev, turns: parseInt(t) });
+    });
+
+    return results;
 }
 
 function displaySearchResults(raw) {
     const resDiv = document.getElementById('searchResult');
     let html = '';
 
-    const leftRanges = getRanges(raw.ball_left, 4);
+    const formatLine = (r, axis) => {
+        const turnStr = (r.turns === 1) ? '' : ` (${r.turns}ターン)`;
+        if (r.start === r.end) {
+            return `${axis} ${r.start}px${turnStr}`;
+        } else {
+            return `${axis} ${r.start}〜${r.end}px (範囲:${r.end - r.start + (axis==='X'?8:4)}px)${turnStr}`;
+        }
+    };
+
+    const leftRanges = getGroupedRanges(raw.ball_left, 4);
     if (leftRanges.length > 0) {
-        html += `<strong>【左ボール】</strong><br>` + leftRanges.map(r => r.start === r.end ? `Y ${r.start}px` : `Y ${r.start}〜${r.end}px (範囲:${r.end-r.start+4}px)`).join('<br>') + '<br>';
+        html += `<strong>【左ボール】</strong><br>` + leftRanges.map(r => formatLine(r, 'Y')).join('<br>') + '<br>';
     }
 
-    const rightRanges = getRanges(raw.ball_right, 4);
+    const rightRanges = getGroupedRanges(raw.ball_right, 4);
     if (rightRanges.length > 0) {
-        html += `<strong>【右ボール】</strong><br>` + rightRanges.map(r => r.start === r.end ? `Y ${r.start}px` : `Y ${r.start}〜${r.end}px (範囲:${r.end-r.start+4}px)`).join('<br>') + '<br>';
+        html += `<strong>【右ボール】</strong><br>` + rightRanges.map(r => formatLine(r, 'Y')).join('<br>') + '<br>';
     }
 
-    const boxRanges = getRanges(raw.box, 8);
+    const boxRanges = getGroupedRanges(raw.box, 8);
     if (boxRanges.length > 0) {
-        html += `<strong>【上空ボックス】</strong><br>` + boxRanges.map(r => r.start === r.end ? `X ${r.start}px` : `X ${r.start}〜${r.end}px (範囲:${r.end-r.start+8}px)`).join('<br>') + '<br>';
+        html += `<strong>【上空ボックス】</strong><br>` + boxRanges.map(r => formatLine(r, 'X')).join('<br>') + '<br>';
     }
 
-    resDiv.innerHTML = html || 'ワンキルできる場所が見つかりませんでした。';
+    resDiv.innerHTML = html || '5ターン以内に成功する場所が見つかりませんでした。';
 }
 
 function clearMarkers() {
@@ -600,31 +624,28 @@ function draw() {
         ctx.restore();
     });
 
-    // 🟡 成功マーカー（線の結合描画）
+    // 🟡 成功マーカー描画
     ctx.fillStyle = '#ffff00';
     ctx.strokeStyle = '#ffff00';
 
-    // 左ボール（円描画）
-    rawSearchResults.ball_left.forEach(y => {
+    rawSearchResults.ball_left.forEach(item => {
         ctx.beginPath();
-        ctx.arc(30, canvas.height - y, 5, 0, 2 * Math.PI);
+        ctx.arc(30, canvas.height - item.val, 5, 0, 2 * Math.PI);
         ctx.fill();
     });
 
-    // 右ボール（円描画）
-    rawSearchResults.ball_right.forEach(y => {
+    rawSearchResults.ball_right.forEach(item => {
         ctx.beginPath();
-        ctx.arc(930, canvas.height - y, 5, 0, 2 * Math.PI);
+        ctx.arc(890, canvas.height - item.val, 5, 0, 2 * Math.PI);
         ctx.fill();
     });
 
-    // ボックス（つながった太い「帯・線」としてハイライト描画）
-    const boxRanges = getRanges(rawSearchResults.box, 8);
+    const boxRanges = getGroupedRanges(rawSearchResults.box, 8);
     ctx.lineWidth = 6;
     boxRanges.forEach(r => {
         ctx.beginPath();
-        ctx.moveTo(r.start, canvas.height - 520);
-        ctx.lineTo(r.end + 8, canvas.height - 520);
+        ctx.moveTo(r.start, canvas.height - 480);
+        ctx.lineTo(r.end + 8, canvas.height - 480);
         ctx.stroke();
     });
 }
@@ -632,6 +653,14 @@ function draw() {
 function animate() {
     if (isPlaying) {
         world.step(1 / 60);
+
+        // 雛ちゃんが画面下に落ちたかを判定して自動停止＆リセット
+        if (hinaBodyRef) {
+            const hPos = hinaBodyRef.getPosition();
+            if (hPos.y < 0) {
+                resetPositions();
+            }
+        }
     }
     draw();
     requestAnimationFrame(animate);
