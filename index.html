@@ -19,7 +19,7 @@
         .reset-group { display: flex; gap: 6px; }
         .reset-group button { padding: 5px 10px; font-size: 11px; width: auto; margin: 0; }
 
-        /* 手動指定発射フォーム（コンパクト） */
+        /* 手動指定発射フォーム */
         .manual-launch-group { display: flex; align-items: center; gap: 5px; background: #333; padding: 4px 8px; border-radius: 4px; border: 1px solid #555; font-size: 11px; }
         .manual-launch-group select, .manual-launch-group input { font-size: 11px; padding: 2px 4px; }
         .manual-launch-group button { width: auto; padding: 3px 8px; margin: 0; font-size: 11px; background: #0077aa; border-color: #0099cc; }
@@ -135,9 +135,11 @@
                 <h3>2. オブジェクト追加</h3>
                 <div class="control-group">
                     <label>種類:</label>
-                    <select id="objType">
+                    <select id="objType" style="width: 130px;">
                         <option value="dynamic">動く(柱等)</option>
                         <option value="static">固定(床等)</option>
+                        <option value="green_pass">投擲物すり抜け(緑)</option>
+                        <option value="purple_pass">雛すり抜け(紫)</option>
                     </select>
                 </div>
                 <div class="control-group">
@@ -179,6 +181,18 @@ const PPU = 75;
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
+// --- 衝突判定ビットフラグ ---
+const CATEGORY_STATIC     = 0x0001; // 通常固定壁
+const CATEGORY_HINA       = 0x0002; // 雛ちゃん
+const CATEGORY_PROJECTILE = 0x0004; // ボール・ボックス
+const CATEGORY_DYNAMIC    = 0x0008; // 動くブロック
+const CATEGORY_GREEN      = 0x0010; // 緑オブジェクト（投擲物すり抜け）
+const CATEGORY_PURPLE     = 0x0020; // 紫オブジェクト（雛すり抜け）
+
+// オブジェクトのサイズ（px）
+const BALL_RADIUS_PX = 0.22 * PPU; // 16.5px
+const BOX_HALF_PX = 20;
+
 let world;
 let hinaData = { x: 460, y: 200, angle: 0 };
 let customObjects = [];
@@ -211,23 +225,49 @@ function buildPhysicsWorld(isFullSimulation) {
         angularDrag: 0.1,
         gravityScale: 1.0
     });
+    
+    const hinaMask = CATEGORY_STATIC | CATEGORY_DYNAMIC | CATEGORY_PROJECTILE | CATEGORY_GREEN;
     hinaBodyRef.createFixture(planck.Box(0.3 / 2, 0.7 / 2), { 
-        density: 1.0, friction: 0.4, restitution: 0.2 
+        density: 1.0, friction: 0.4, restitution: 0.2,
+        filterCategoryBits: CATEGORY_HINA,
+        filterMaskBits: hinaMask
     });
     hinaBodyRef.setUserData({ id: 'hina' });
 
     customObjects.forEach((obj, index) => {
-        const bType = isFullSimulation ? obj.type : 'static';
+        const isDynamic = (obj.type === 'dynamic');
+        const bType = (isFullSimulation && isDynamic) ? 'dynamic' : 'static';
+        
         const body = world.createBody({
             type: bType,
             position: planck.Vec2(obj.x / PPU, obj.y / PPU),
             angle: obj.angle,
             angularDrag: 1.0
         });
+
+        let catBits = CATEGORY_STATIC;
+        let maskBits = 0xFFFF;
+
+        if (obj.type === 'dynamic') {
+            catBits = CATEGORY_DYNAMIC;
+            maskBits = 0xFFFF;
+        } else if (obj.type === 'static') {
+            catBits = CATEGORY_STATIC;
+            maskBits = 0xFFFF;
+        } else if (obj.type === 'green_pass') {
+            catBits = CATEGORY_GREEN;
+            maskBits = CATEGORY_HINA | CATEGORY_DYNAMIC;
+        } else if (obj.type === 'purple_pass') {
+            catBits = CATEGORY_PURPLE;
+            maskBits = CATEGORY_PROJECTILE | CATEGORY_DYNAMIC;
+        }
+
         body.createFixture(planck.Box((obj.w / PPU) / 2, (obj.h / PPU) / 2), {
-            density: obj.type === 'dynamic' ? 2.0 : 0.0,
+            density: isDynamic ? 2.0 : 0.0,
             friction: 0.5,
-            restitution: 0.2
+            restitution: 0.2,
+            filterCategoryBits: catBits,
+            filterMaskBits: maskBits
         });
         body.setUserData({ id: 'custom', index: index });
     });
@@ -320,14 +360,19 @@ function fireBallAtY(targetY, isLeft) {
         updatePlayPauseButton();
     }
 
-    const launchX_px = isLeft ? 30 : 890;
+    // 🔧 左発射は右端が0px(中心-16.5px)、右発射は左端が920px(中心936.5px)に設定
+    const launchX_px = isLeft ? -BALL_RADIUS_PX : (920 + BALL_RADIUS_PX);
 
     const ball = world.createBody({
         type: 'dynamic',
         position: planck.Vec2(launchX_px / PPU, targetY / PPU)
     });
+
+    const projMask = CATEGORY_STATIC | CATEGORY_DYNAMIC | CATEGORY_HINA | CATEGORY_PURPLE;
     ball.createFixture(planck.Circle(0.22), { 
-        density: 1.5, friction: 0.2, restitution: 0.5 
+        density: 1.5, friction: 0.2, restitution: 0.5,
+        filterCategoryBits: CATEGORY_PROJECTILE,
+        filterMaskBits: projMask
     });
 
     const velocityX = isLeft ? 20.0 : -20.0;
@@ -344,14 +389,19 @@ function dropBoxAtX(targetX) {
         updatePlayPauseButton();
     }
     
+    // 🔧 下端が500px(画面上縁)に位置するように Y=520px から落下
     const box = world.createBody({
         type: 'dynamic',
-        position: planck.Vec2(targetX / PPU, 480 / PPU)
+        position: planck.Vec2(targetX / PPU, (500 + BOX_HALF_PX) / PPU)
     });
+
+    const projMask = CATEGORY_STATIC | CATEGORY_DYNAMIC | CATEGORY_HINA | CATEGORY_PURPLE;
     box.createFixture(planck.Box((40 / PPU) / 2, (40 / PPU) / 2), {
         density: 3.0,
         friction: 0.5,
-        restitution: 0.1
+        restitution: 0.1,
+        filterCategoryBits: CATEGORY_PROJECTILE,
+        filterMaskBits: projMask
     });
 
     spawnedBodies.push({ body: box, type: 'box' });
@@ -376,7 +426,7 @@ function resetScene() {
     initScene();
 }
 
-// --- 自動探索（最大5ターン判定） ---
+// --- 自動探索 ---
 function runAutoSearch() {
     const target = document.getElementById('searchTarget').value;
     rawSearchResults = { ball_left: [], ball_right: [], box: [] };
@@ -422,40 +472,59 @@ function simulateKillTurns(type, params) {
         angularDrag: 0.1,
         gravityScale: 1.0
     });
-    simHina.createFixture(planck.Box(0.3 / 2, 0.7 / 2), { density: 1.0, friction: 0.4, restitution: 0.2 });
+    const hinaMask = CATEGORY_STATIC | CATEGORY_DYNAMIC | CATEGORY_PROJECTILE | CATEGORY_GREEN;
+    simHina.createFixture(planck.Box(0.3 / 2, 0.7 / 2), { 
+        density: 1.0, friction: 0.4, restitution: 0.2,
+        filterCategoryBits: CATEGORY_HINA, filterMaskBits: hinaMask
+    });
 
     customObjects.forEach((obj) => {
         let b = simWorld.createBody({
-            type: obj.type,
+            type: (obj.type === 'dynamic') ? 'dynamic' : 'static',
             position: planck.Vec2(obj.x / PPU, obj.y / PPU),
             angle: obj.angle,
             angularDrag: 1.0
         });
+
+        let catBits = CATEGORY_STATIC;
+        let maskBits = 0xFFFF;
+        if (obj.type === 'dynamic') { catBits = CATEGORY_DYNAMIC; }
+        else if (obj.type === 'green_pass') { catBits = CATEGORY_GREEN; maskBits = CATEGORY_HINA | CATEGORY_DYNAMIC; }
+        else if (obj.type === 'purple_pass') { catBits = CATEGORY_PURPLE; maskBits = CATEGORY_PROJECTILE | CATEGORY_DYNAMIC; }
+
         b.createFixture(planck.Box((obj.w / PPU) / 2, (obj.h / PPU) / 2), { 
-            density: obj.type === 'dynamic' ? 2.0 : 0.0,
-            friction: 0.5,
-            restitution: 0.2
+            density: (obj.type === 'dynamic') ? 2.0 : 0.0,
+            friction: 0.5, restitution: 0.2,
+            filterCategoryBits: catBits, filterMaskBits: maskBits
         });
     });
 
+    const projMask = CATEGORY_STATIC | CATEGORY_DYNAMIC | CATEGORY_HINA | CATEGORY_PURPLE;
+
     for (let turn = 1; turn <= 5; turn++) {
         if (type === 'ball') {
-            const launchX = params.isLeft ? 30 : 890;
+            const launchX = params.isLeft ? -BALL_RADIUS_PX : (920 + BALL_RADIUS_PX);
             let ball = simWorld.createBody({
                 type: 'dynamic',
                 position: planck.Vec2(launchX / PPU, params.y / PPU)
             });
-            ball.createFixture(planck.Circle(0.22), { density: 1.5, friction: 0.2, restitution: 0.5 });
+            ball.createFixture(planck.Circle(0.22), { 
+                density: 1.5, friction: 0.2, restitution: 0.5,
+                filterCategoryBits: CATEGORY_PROJECTILE, filterMaskBits: projMask 
+            });
             ball.setLinearVelocity(planck.Vec2(params.isLeft ? 20.0 : -20.0, -1.0));
         } else if (type === 'box') {
             let box = simWorld.createBody({
                 type: 'dynamic',
-                position: planck.Vec2(params.x / PPU, 480 / PPU)
+                position: planck.Vec2(params.x / PPU, (500 + BOX_HALF_PX) / PPU)
             });
-            box.createFixture(planck.Box((40 / PPU) / 2, (40 / PPU) / 2), { density: 3.0, friction: 0.5, restitution: 0.1 });
+            box.createFixture(planck.Box((40 / PPU) / 2, (40 / PPU) / 2), { 
+                density: 3.0, friction: 0.5, restitution: 0.1,
+                filterCategoryBits: CATEGORY_PROJECTILE, filterMaskBits: projMask
+            });
         }
 
-        for (let f = 0; f < 180; f++) {
+        for (let f = 0; f < 300; f++) {
             simWorld.step(1 / 60);
             let hPos = simHina.getPosition();
             if (hPos.y < 0) return turn;
@@ -580,7 +649,13 @@ function handleStart(e) {
         if (Math.abs(mouse.x - obj.x) < obj.w/2 && Math.abs(mouse.y - obj.y) < obj.h/2) {
             isDragging = true;
             draggedTarget = i;
-            const label = (obj.type === 'static' ? '固定' : '動く') + 'ブロック[' + i + ']';
+            
+            let label = 'ブロック[' + i + ']';
+            if (obj.type === 'static') label = '固定ブロック[' + i + ']';
+            if (obj.type === 'dynamic') label = '動くブロック[' + i + ']';
+            if (obj.type === 'green_pass') label = '投擲物透過(緑)[' + i + ']';
+            if (obj.type === 'purple_pass') label = '雛透過(紫)[' + i + ']';
+
             updateUISelection(label, obj.x, obj.y);
             return;
         }
@@ -600,7 +675,13 @@ function handleMove(e) {
         customObjects[draggedTarget].x = Math.round(mouse.x);
         customObjects[draggedTarget].y = Math.round(mouse.y);
         const obj = customObjects[draggedTarget];
-        const label = (obj.type === 'static' ? '固定' : '動く') + 'ブロック[' + draggedTarget + ']';
+        
+        let label = 'ブロック[' + draggedTarget + ']';
+        if (obj.type === 'static') label = '固定ブロック[' + draggedTarget + ']';
+        if (obj.type === 'dynamic') label = '動くブロック[' + draggedTarget + ']';
+        if (obj.type === 'green_pass') label = '投擲物透過(緑)[' + draggedTarget + ']';
+        if (obj.type === 'purple_pass') label = '雛透過(紫)[' + draggedTarget + ']';
+
         updateUISelection(label, obj.x, obj.y);
     }
     buildPhysicsWorld(false);
@@ -639,7 +720,21 @@ function draw() {
             ctx.fillRect(-(0.3 * PPU) / 2, -(0.7 * PPU) / 2, 0.3 * PPU, 0.7 * PPU);
         } else if (uData && uData.id === 'custom') {
             const obj = customObjects[uData.index];
-            ctx.fillStyle = (obj.type === 'static') ? '#777777' : '#44aa44';
+            if (obj.type === 'static') {
+                ctx.fillStyle = '#777777';
+            } else if (obj.type === 'dynamic') {
+                ctx.fillStyle = '#44aa44';
+            } else if (obj.type === 'green_pass') {
+                ctx.fillStyle = 'rgba(0, 255, 100, 0.4)';
+                ctx.strokeStyle = '#00ff66';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
+            } else if (obj.type === 'purple_pass') {
+                ctx.fillStyle = 'rgba(180, 0, 255, 0.4)';
+                ctx.strokeStyle = '#cc00ff';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
+            }
             ctx.fillRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
         }
         ctx.restore();
@@ -662,33 +757,28 @@ function draw() {
         ctx.restore();
     });
 
-    // 🟡 ワンキル(1ターン) ＝ 黄色 (#ffff00)
-    // 🟣 マルチターン(2ターン以上) ＝ 紫色 (#aa00ff)
-
-    // 左ボール
+    // 探索マッピング (左発射はX=0、右発射はX=920にドット表示)
     rawSearchResults.ball_left.forEach(item => {
         ctx.fillStyle = (item.turns === 1) ? '#ffff00' : '#aa00ff';
         ctx.beginPath();
-        ctx.arc(30, canvas.height - item.val, 5, 0, 2 * Math.PI);
+        ctx.arc(0, canvas.height - item.val, 5, 0, 2 * Math.PI);
         ctx.fill();
     });
 
-    // 右ボール
     rawSearchResults.ball_right.forEach(item => {
         ctx.fillStyle = (item.turns === 1) ? '#ffff00' : '#aa00ff';
         ctx.beginPath();
-        ctx.arc(890, canvas.height - item.val, 5, 0, 2 * Math.PI);
+        ctx.arc(920, canvas.height - item.val, 5, 0, 2 * Math.PI);
         ctx.fill();
     });
 
-    // ボックス (線)
     const boxRanges = getGroupedRanges(rawSearchResults.box, 8);
     ctx.lineWidth = 6;
     boxRanges.forEach(r => {
         ctx.strokeStyle = (r.turns === 1) ? '#ffff00' : '#aa00ff';
         ctx.beginPath();
-        ctx.moveTo(r.start, canvas.height - 480);
-        ctx.lineTo(r.end + 8, canvas.height - 480);
+        ctx.moveTo(r.start, canvas.height - 500);
+        ctx.lineTo(r.end + 8, canvas.height - 500);
         ctx.stroke();
     });
 }
