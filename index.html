@@ -166,11 +166,11 @@ const ctx = canvas.getContext('2d');
 let world;
 let hinaData = { x: 480, y: 200, angle: 0 };
 let customObjects = [];
-let isPlaying = false; // 再生・停止フラグ
+let isPlaying = false; 
 let spawnedBodies = [];
 
-let currentActionMode = 'drag'; // 'drag' | 'ball' | 'box'
-let successMarkers = []; // 探索結果マーカー
+let currentActionMode = 'drag';
+let rawSearchResults = { ball_left: [], ball_right: [], box: [] };
 
 let isDragging = false;
 let draggedTarget = null;
@@ -185,7 +185,7 @@ function initScene() {
 function buildPhysicsWorld(isFullSimulation) {
     world = new planck.World(planck.Vec2(0.0, -9.81));
 
-    // 雛ちゃん生成
+    // 雛ちゃん
     const hinaBodyType = isFullSimulation ? 'dynamic' : 'static';
     const hBody = world.createBody({
         type: hinaBodyType,
@@ -200,7 +200,7 @@ function buildPhysicsWorld(isFullSimulation) {
     });
     hBody.setUserData({ id: 'hina' });
 
-    // ブロック生成
+    // カスタムオブジェクト
     customObjects.forEach((obj, index) => {
         const bType = isFullSimulation ? obj.type : 'static';
         
@@ -220,12 +220,26 @@ function buildPhysicsWorld(isFullSimulation) {
     });
 }
 
+// 物理の「動く(dynamic)/止まる(static)」のみを切り替えて運動エネルギーを保持する
+function setBodiesMotionState(enable) {
+    if (!world) return;
+    for (let b = world.getBodyList(); b; b = b.getNext()) {
+        const uData = b.getUserData();
+        if (uData && uData.id === 'hina') {
+            b.setType(enable ? 'dynamic' : 'static');
+        } else if (uData && uData.id === 'custom') {
+            const obj = customObjects[uData.index];
+            if (obj.type === 'dynamic') {
+                b.setType(enable ? 'dynamic' : 'static');
+            }
+        }
+    }
+}
+
 // 再生/停止 トグル
 function togglePlayPause() {
     isPlaying = !isPlaying;
-    if (isPlaying) {
-        buildPhysicsWorld(true);
-    }
+    setBodiesMotionState(isPlaying);
     updatePlayPauseButton();
 }
 
@@ -268,7 +282,7 @@ function setActionMode(mode) {
 function fireBallAtY(targetY, isLeft) {
     if (!isPlaying) {
         isPlaying = true;
-        buildPhysicsWorld(true);
+        setBodiesMotionState(true);
         updatePlayPauseButton();
     }
 
@@ -290,7 +304,7 @@ function fireBallAtY(targetY, isLeft) {
 function dropBoxAtX(targetX) {
     if (!isPlaying) {
         isPlaying = true;
-        buildPhysicsWorld(true);
+        setBodiesMotionState(true);
         updatePlayPauseButton();
     }
     
@@ -307,6 +321,7 @@ function dropBoxAtX(targetX) {
     spawnedBodies.push({ body: box, type: 'box' });
 }
 
+// 明示的に初期配置状態へ引き戻す
 function resetPositions() {
     spawnedBodies = [];
     isPlaying = false;
@@ -324,18 +339,15 @@ function resetScene() {
     initScene();
 }
 
-// --- 完全一致版 AI自動探索 ---
+// --- 自動探索 ---
 function runAutoSearch() {
     const target = document.getElementById('searchTarget').value;
-    successMarkers = [];
-
-    let rawResults = { ball_left: [], ball_right: [], box: [] };
+    rawSearchResults = { ball_left: [], ball_right: [], box: [] };
 
     if (target === 'all' || target === 'ball_both' || target === 'ball_left') {
         for (let y = 0; y <= 540; y += 4) {
             if (simulateOneKill('ball', { isLeft: true, y: y })) {
-                rawResults.ball_left.push(y);
-                successMarkers.push({ type: 'ball_left', val: y });
+                rawSearchResults.ball_left.push(y);
             }
         }
     }
@@ -343,8 +355,7 @@ function runAutoSearch() {
     if (target === 'all' || target === 'ball_both' || target === 'ball_right') {
         for (let y = 0; y <= 540; y += 4) {
             if (simulateOneKill('ball', { isLeft: false, y: y })) {
-                rawResults.ball_right.push(y);
-                successMarkers.push({ type: 'ball_right', val: y });
+                rawSearchResults.ball_right.push(y);
             }
         }
     }
@@ -352,19 +363,17 @@ function runAutoSearch() {
     if (target === 'all' || target === 'box') {
         for (let x = 0; x <= 960; x += 8) {
             if (simulateOneKill('box', { x: x })) {
-                rawResults.box.push(x);
-                successMarkers.push({ type: 'box', val: x });
+                rawSearchResults.box.push(x);
             }
         }
     }
 
-    displaySearchResults(rawResults);
+    displaySearchResults(rawSearchResults);
 }
 
 function simulateOneKill(type, params) {
     let simWorld = new planck.World(planck.Vec2(0.0, -9.81));
 
-    // 本番と全く同じ物理パラメータで雛ちゃんを生成
     let simHina = simWorld.createBody({
         type: 'dynamic',
         position: planck.Vec2(hinaData.x / PPU, hinaData.y / PPU),
@@ -375,7 +384,6 @@ function simulateOneKill(type, params) {
     });
     simHina.createFixture(planck.Box(0.3 / 2, 0.7 / 2), { density: 1.0, friction: 0.4, restitution: 0.2 });
 
-    // ブロック生成
     customObjects.forEach((obj) => {
         let b = simWorld.createBody({
             type: obj.type,
@@ -390,7 +398,6 @@ function simulateOneKill(type, params) {
         });
     });
 
-    // 投射物生成
     if (type === 'ball') {
         const launchX = params.isLeft ? 30 : 930;
         let ball = simWorld.createBody({
@@ -415,7 +422,7 @@ function simulateOneKill(type, params) {
     return false;
 }
 
-function formatRanges(arr, step, prefix) {
+function getRanges(arr, step) {
     if (arr.length === 0) return [];
     let ranges = [];
     let start = arr[0];
@@ -431,39 +438,33 @@ function formatRanges(arr, step, prefix) {
         }
     }
     ranges.push({ start, end: prev });
-
-    return ranges.map(r => {
-        if (r.start === r.end) {
-            return `${prefix}${r.start}px`;
-        } else {
-            const span = (r.end - r.start) + step;
-            return `${prefix}${r.start}〜${r.end}px (範囲: ${span}px)`;
-        }
-    });
+    return ranges;
 }
 
 function displaySearchResults(raw) {
     const resDiv = document.getElementById('searchResult');
     let html = '';
 
-    const leftRanges = formatRanges(raw.ball_left, 4, 'Y ');
-    if (leftRanges.length > 0) html += `<strong>【左ボール】</strong><br>` + leftRanges.join('<br>') + '<br>';
-
-    const rightRanges = formatRanges(raw.ball_right, 4, 'Y ');
-    if (rightRanges.length > 0) html += `<strong>【右ボール】</strong><br>` + rightRanges.join('<br>') + '<br>';
-
-    const boxRanges = formatRanges(raw.box, 8, 'X ');
-    if (boxRanges.length > 0) html += `<strong>【上空ボックス】</strong><br>` + boxRanges.join('<br>') + '<br>';
-
-    if (html === '') {
-        resDiv.innerHTML = 'ワンキルできる場所が見つかりませんでした。';
-    } else {
-        resDiv.innerHTML = html;
+    const leftRanges = getRanges(raw.ball_left, 4);
+    if (leftRanges.length > 0) {
+        html += `<strong>【左ボール】</strong><br>` + leftRanges.map(r => r.start === r.end ? `Y ${r.start}px` : `Y ${r.start}〜${r.end}px (範囲:${r.end-r.start+4}px)`).join('<br>') + '<br>';
     }
+
+    const rightRanges = getRanges(raw.ball_right, 4);
+    if (rightRanges.length > 0) {
+        html += `<strong>【右ボール】</strong><br>` + rightRanges.map(r => r.start === r.end ? `Y ${r.start}px` : `Y ${r.start}〜${r.end}px (範囲:${r.end-r.start+4}px)`).join('<br>') + '<br>';
+    }
+
+    const boxRanges = getRanges(raw.box, 8);
+    if (boxRanges.length > 0) {
+        html += `<strong>【上空ボックス】</strong><br>` + boxRanges.map(r => r.start === r.end ? `X ${r.start}px` : `X ${r.start}〜${r.end}px (範囲:${r.end-r.start+8}px)`).join('<br>') + '<br>';
+    }
+
+    resDiv.innerHTML = html || 'ワンキルできる場所が見つかりませんでした。';
 }
 
 function clearMarkers() {
-    successMarkers = [];
+    rawSearchResults = { ball_left: [], ball_right: [], box: [] };
     document.getElementById('searchResult').innerText = "探索結果がここに表示されます";
 }
 
@@ -503,7 +504,6 @@ function handleStart(e) {
         return;
     }
 
-    // 停止中のみドラッグ移動可能
     if (isPlaying) return;
 
     if (Math.abs(mouse.x - hinaData.x) < 25 && Math.abs(mouse.y - hinaData.y) < 35) {
@@ -600,22 +600,32 @@ function draw() {
         ctx.restore();
     });
 
-    // 🟡 黄色マーカー描画
+    // 🟡 成功マーカー（線の結合描画）
     ctx.fillStyle = '#ffff00';
-    successMarkers.forEach(m => {
-        if (m.type === 'ball_left') {
-            ctx.beginPath();
-            ctx.arc(30, canvas.height - m.val, 5, 0, 2 * Math.PI);
-            ctx.fill();
-        } else if (m.type === 'ball_right') {
-            ctx.beginPath();
-            ctx.arc(930, canvas.height - m.val, 5, 0, 2 * Math.PI);
-            ctx.fill();
-        } else if (m.type === 'box') {
-            ctx.beginPath();
-            ctx.arc(m.val, canvas.height - 520, 4, 0, 2 * Math.PI);
-            ctx.fill();
-        }
+    ctx.strokeStyle = '#ffff00';
+
+    // 左ボール（円描画）
+    rawSearchResults.ball_left.forEach(y => {
+        ctx.beginPath();
+        ctx.arc(30, canvas.height - y, 5, 0, 2 * Math.PI);
+        ctx.fill();
+    });
+
+    // 右ボール（円描画）
+    rawSearchResults.ball_right.forEach(y => {
+        ctx.beginPath();
+        ctx.arc(930, canvas.height - y, 5, 0, 2 * Math.PI);
+        ctx.fill();
+    });
+
+    // ボックス（つながった太い「帯・線」としてハイライト描画）
+    const boxRanges = getRanges(rawSearchResults.box, 8);
+    ctx.lineWidth = 6;
+    boxRanges.forEach(r => {
+        ctx.beginPath();
+        ctx.moveTo(r.start, canvas.height - 520);
+        ctx.lineTo(r.end + 8, canvas.height - 520);
+        ctx.stroke();
     });
 }
 
