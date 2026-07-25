@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>雛ブレ2nd 物理シミュレータ プロトタイプ(左右対応)</title>
+    <script src="https://jsdelivr.net"></script>
+    <style>
+        body { background: #222; color: #fff; font-family: sans-serif; text-align: center; }
+        canvas { background: #111; border: 2px solid #555; display: block; margin: 10px auto; }
+        .controls { margin-top: 15px; background: #333; padding: 15px; display: inline-block; border-radius: 8px; }
+        .control-group { margin: 10px 0; }
+        button { padding: 8px 15px; font-size: 16px; cursor: pointer; font-weight: bold; }
+        label { margin: 0 10px; }
+    </style>
+</head>
+<body>
+
+    <h1>雛ちゃんブレイカー2nd 物理予測テスト</h1>
+    <p>画面解像度: 960 x 540 基準 (75ピクセル = 1ユニット)</p>
+    
+    <canvas id="gameCanvas" width="960" height="540"></canvas>
+
+    <div class="controls">
+        <div class="control-group">
+            <label><strong>発射方向:</strong></label>
+            <input type="radio" id="dirLeft" name="direction" value="left" checked>
+            <label for="dirLeft">左から（右向きに発射）</label>
+            <input type="radio" id="dirRight" name="direction" value="right">
+            <label for="dirRight">右から（左向きに発射）</label>
+        </div>
+
+        <div class="control-group">
+            <label><strong>発射の高さ (Yピクセル: 0〜540):</strong></label>
+            <input type="number" id="shootY" value="300" min="50" max="500" style="width: 60px;">
+            <button onclick="resetAndSimulate()">ボールを発射</button>
+        </div>
+    </div>
+
+<script>
+const PPU = 75; 
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+let world, hinaBody, ballBody;
+const groundY_px = 50; 
+
+function initWorld() {
+    world = planck.World(planck.Vec2(0.0, -9.81));
+
+    // 床の作成
+    const ground = world.createBody();
+    ground.createFixture(planck.Edge(
+        planck.Vec2(0 / PPU, groundY_px / PPU),
+        planck.Vec2(960 / PPU, groundY_px / PPU)
+    ), { friction: 0.4, restitution: 0.4 });
+
+    // 雛ちゃん本体の作成 (Mass: 0.8, GravityScale: 0.8, AngularDrag: 0.05)
+    hinaBody = world.createBody({
+        type: 'dynamic',
+        position: planck.Vec2(480 / PPU, (groundY_px + 10) / PPU), // 画面中央付近の床の上に配置
+        linearDrag: 0.0,
+        angularDrag: 0.05,
+        gravityScale: 0.8
+    });
+
+    // 雛ちゃんの四角形コライダー (Size: 0.3 x 0.7)
+    hinaBody.createFixture(planck.Box(
+        0.3 / 2, 
+        0.7 / 2, 
+        planck.Vec2(0, -0.02),
+        0
+    ), { density: 0.8, friction: 0.3, restitution: 0.5 });
+}
+
+function spawnBall(shootY_px, isLeft) {
+    // 左右の選択によって初期X座標を決定 (左端は50px、右端は910pxの位置から)
+    const launchX_px = isLeft ? 50 : 910;
+
+    ballBody = world.createBody({
+        type: 'dynamic',
+        position: planck.Vec2(launchX_px / PPU, shootY_px / PPU),
+        linearDrag: 0.0,
+        angularDrag: 10.0,
+        gravityScale: 1.0 
+    });
+
+    ballBody.createFixture(planck.Circle(0.22), { 
+        density: 1.0, friction: 0.0, restitution: 0.6
+    });
+
+    // 左右の選択によって速度ベクトルの向きを反転 (仮の速度値: 20)
+    const velocityX = isLeft ? 20.0 : -20.0;
+    ballBody.setLinearVelocity(planck.Vec2(velocityX, 0.0));
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // 床
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, canvas.height - groundY_px);
+    ctx.lineTo(canvas.width, canvas.height - groundY_px);
+    ctx.stroke();
+
+    // 雛ちゃん (赤色)
+    if (hinaBody) {
+        const pos = hinaBody.getPosition();
+        const angle = hinaBody.getAngle();
+        ctx.save();
+        ctx.translate(pos.x * PPU, canvas.height - (pos.y * PPU));
+        ctx.rotate(-angle);
+        ctx.fillStyle = '#ff4444';
+        ctx.fillRect(-(0.3 * PPU) / 2, -(0.7 * PPU) / 2, 0.3 * PPU, 0.7 * PPU);
+        ctx.restore();
+    }
+
+    // ボール (水色)
+    if (ballBody) {
+        const pos = ballBody.getPosition();
+        ctx.beginPath();
+        ctx.arc(pos.x * PPU, canvas.height - (pos.y * PPU), 0.22 * PPU, 0, 2 * Math.PI);
+        ctx.fillStyle = '#44ffff';
+        ctx.fill();
+    }
+}
+
+function animate() {
+    world.step(1 / 60);
+    draw();
+    requestAnimationFrame(animate);
+}
+
+function resetAndSimulate() {
+    const shootY = parseFloat(document.getElementById('shootY').value);
+    const isLeft = document.getElementById('dirLeft').checked; // ラジオボタンの状態を取得
+    initWorld();
+    spawnBall(shootY, isLeft);
+}
+
+initWorld();
+animate();
+</script>
+</body>
+</html>
