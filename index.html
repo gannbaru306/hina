@@ -135,11 +135,13 @@
                 <h3>2. オブジェクト追加</h3>
                 <div class="control-group">
                     <label>種類:</label>
-                    <select id="objType" style="width: 130px;">
+                    <select id="objType" style="width: 130px;" onchange="onObjTypeChange()">
                         <option value="dynamic">動く(柱等)</option>
                         <option value="static">固定(床等)</option>
                         <option value="green_pass">投擲物すり抜け(緑)</option>
                         <option value="purple_pass">雛すり抜け(紫)</option>
+                        <option value="preset_tree">🌲 木(動的)</option>
+                        <option value="preset_snowman">☃️ 雪だるま(動的)</option>
                     </select>
                 </div>
                 <div class="control-group">
@@ -150,17 +152,18 @@
                     </div>
                 </div>
                 <div class="control-group">
-                    <label>幅W / 高H:</label>
+                    <label>幅W / 高H / 角度:</label>
                     <div>
                         <input type="number" id="newW" value="180" style="width:32px;">
                         <input type="number" id="newH" value="20" style="width:32px;">
+                        <input type="number" id="newAngle" value="0" style="width:32px;">
                     </div>
                 </div>
                 <button onclick="addObjectFromUI()">オブジェクト追加</button>
             </div>
 
             <div class="panel">
-                <h3>3. 選択情報</h3>
+                <h3>3. 選択情報 & 角度変更</h3>
                 <div class="control-group">
                     <label>名前:</label>
                     <span id="selectedName" style="font-size:11px; color:#fffa00;">なし</span>
@@ -172,6 +175,10 @@
                         <input type="number" id="selectedY" readonly style="background:#333; color:#aaa; width:32px;">
                     </div>
                 </div>
+                <div class="control-group">
+                    <label>角度 (deg):</label>
+                    <input type="number" id="selectedAngle" value="0" style="width:60px;" oninput="updateSelectedAngle()">
+                </div>
             </div>
         </div>
     </div>
@@ -182,12 +189,12 @@ const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
 // --- 衝突判定ビットフラグ ---
-const CATEGORY_STATIC     = 0x0001; // 通常固定壁
-const CATEGORY_HINA       = 0x0002; // 雛ちゃん
-const CATEGORY_PROJECTILE = 0x0004; // ボール・ボックス
-const CATEGORY_DYNAMIC    = 0x0008; // 動くブロック
-const CATEGORY_GREEN      = 0x0010; // 緑オブジェクト（投擲物すり抜け）
-const CATEGORY_PURPLE     = 0x0020; // 紫オブジェクト（雛すり抜け）
+const CATEGORY_STATIC     = 0x0001; 
+const CATEGORY_HINA       = 0x0002; 
+const CATEGORY_PROJECTILE = 0x0004; 
+const CATEGORY_DYNAMIC    = 0x0008; 
+const CATEGORY_GREEN      = 0x0010; 
+const CATEGORY_PURPLE     = 0x0020; 
 
 // オブジェクトのサイズ（px）
 const BALL_RADIUS_PX = 0.22 * PPU; // 16.5px
@@ -205,6 +212,9 @@ let rawSearchResults = { ball_left: [], ball_right: [], box: [] };
 
 let isDragging = false;
 let draggedTarget = null;
+
+function degToRad(deg) { return deg * Math.PI / 180; }
+function radToDeg(rad) { return Math.round(rad * 180 / Math.PI); }
 
 function initScene() {
     spawnedBodies = [];
@@ -235,7 +245,7 @@ function buildPhysicsWorld(isFullSimulation) {
     hinaBodyRef.setUserData({ id: 'hina' });
 
     customObjects.forEach((obj, index) => {
-        const isDynamic = (obj.type === 'dynamic');
+        const isDynamic = (obj.type === 'dynamic' || obj.type === 'preset_tree' || obj.type === 'preset_snowman');
         const bType = (isFullSimulation && isDynamic) ? 'dynamic' : 'static';
         
         const body = world.createBody({
@@ -248,7 +258,7 @@ function buildPhysicsWorld(isFullSimulation) {
         let catBits = CATEGORY_STATIC;
         let maskBits = 0xFFFF;
 
-        if (obj.type === 'dynamic') {
+        if (isDynamic) {
             catBits = CATEGORY_DYNAMIC;
             maskBits = 0xFFFF;
         } else if (obj.type === 'static') {
@@ -281,7 +291,8 @@ function setBodiesMotionState(enable) {
             b.setType(enable ? 'dynamic' : 'static');
         } else if (uData && uData.id === 'custom') {
             const obj = customObjects[uData.index];
-            if (obj.type === 'dynamic') {
+            const isDynamic = (obj.type === 'dynamic' || obj.type === 'preset_tree' || obj.type === 'preset_snowman');
+            if (isDynamic) {
                 b.setType(enable ? 'dynamic' : 'static');
             }
         }
@@ -360,7 +371,6 @@ function fireBallAtY(targetY, isLeft) {
         updatePlayPauseButton();
     }
 
-    // 🔧 左発射は右端が0px(中心-16.5px)、右発射は左端が920px(中心936.5px)に設定
     const launchX_px = isLeft ? -BALL_RADIUS_PX : (920 + BALL_RADIUS_PX);
 
     const ball = world.createBody({
@@ -389,7 +399,6 @@ function dropBoxAtX(targetX) {
         updatePlayPauseButton();
     }
     
-    // 🔧 下端が500px(画面上縁)に位置するように Y=520px から落下
     const box = world.createBody({
         type: 'dynamic',
         position: planck.Vec2(targetX / PPU, (500 + BOX_HALF_PX) / PPU)
@@ -420,48 +429,18 @@ function resetScene() {
     customObjects = [];
     hinaData = { x: 460, y: 200, angle: 0 };
     clearMarkers();
+    draggedTarget = null;
     document.getElementById('selectedName').innerText = "なし";
     document.getElementById('selectedX').value = "";
     document.getElementById('selectedY').value = "";
+    document.getElementById('selectedAngle').value = "0";
     initScene();
 }
 
-// --- 自動探索 ---
-function runAutoSearch() {
-    const target = document.getElementById('searchTarget').value;
-    rawSearchResults = { ball_left: [], ball_right: [], box: [] };
-
-    if (target === 'all' || target === 'ball_both' || target === 'ball_left') {
-        for (let y = 0; y <= 500; y += 4) {
-            const turns = simulateKillTurns('ball', { isLeft: true, y: y });
-            if (turns > 0) {
-                rawSearchResults.ball_left.push({ val: y, turns: turns });
-            }
-        }
-    }
-
-    if (target === 'all' || target === 'ball_both' || target === 'ball_right') {
-        for (let y = 0; y <= 500; y += 4) {
-            const turns = simulateKillTurns('ball', { isLeft: false, y: y });
-            if (turns > 0) {
-                rawSearchResults.ball_right.push({ val: y, turns: turns });
-            }
-        }
-    }
-
-    if (target === 'all' || target === 'box') {
-        for (let x = 0; x <= 920; x += 8) {
-            const turns = simulateKillTurns('box', { x: x });
-            if (turns > 0) {
-                rawSearchResults.box.push({ val: x, turns: turns });
-            }
-        }
-    }
-
-    displaySearchResults(rawSearchResults);
-}
-
-function simulateKillTurns(type, params) {
+// -------------------------------------------------------------
+// ⚡ 高速化シミュレーション用環境構築 & トランスフォーム復元
+// -------------------------------------------------------------
+function createSimEnvironment() {
     let simWorld = new planck.World(planck.Vec2(0.0, -9.81));
 
     let simHina = simWorld.createBody({
@@ -478,9 +457,10 @@ function simulateKillTurns(type, params) {
         filterCategoryBits: CATEGORY_HINA, filterMaskBits: hinaMask
     });
 
-    customObjects.forEach((obj) => {
+    let simObjects = customObjects.map(obj => {
+        const isDynamic = (obj.type === 'dynamic' || obj.type === 'preset_tree' || obj.type === 'preset_snowman');
         let b = simWorld.createBody({
-            type: (obj.type === 'dynamic') ? 'dynamic' : 'static',
+            type: isDynamic ? 'dynamic' : 'static',
             position: planck.Vec2(obj.x / PPU, obj.y / PPU),
             angle: obj.angle,
             angularDrag: 1.0
@@ -488,49 +468,126 @@ function simulateKillTurns(type, params) {
 
         let catBits = CATEGORY_STATIC;
         let maskBits = 0xFFFF;
-        if (obj.type === 'dynamic') { catBits = CATEGORY_DYNAMIC; }
+        if (isDynamic) { catBits = CATEGORY_DYNAMIC; }
         else if (obj.type === 'green_pass') { catBits = CATEGORY_GREEN; maskBits = CATEGORY_HINA | CATEGORY_DYNAMIC; }
         else if (obj.type === 'purple_pass') { catBits = CATEGORY_PURPLE; maskBits = CATEGORY_PROJECTILE | CATEGORY_DYNAMIC; }
 
         b.createFixture(planck.Box((obj.w / PPU) / 2, (obj.h / PPU) / 2), { 
-            density: (obj.type === 'dynamic') ? 2.0 : 0.0,
+            density: isDynamic ? 2.0 : 0.0,
             friction: 0.5, restitution: 0.2,
             filterCategoryBits: catBits, filterMaskBits: maskBits
         });
+        return { body: b, initX: obj.x / PPU, initY: obj.y / PPU, initAngle: obj.angle };
     });
 
+    return { simWorld, simHina, simObjects };
+}
+
+function resetSimEnvironment(env) {
+    // 雛ちゃん復元
+    env.simHina.setPosition(planck.Vec2(hinaData.x / PPU, hinaData.y / PPU));
+    env.simHina.setAngle(hinaData.angle);
+    env.simHina.setLinearVelocity(planck.Vec2(0, 0));
+    env.simHina.setAngularVelocity(0);
+    env.simHina.setAwake(true);
+
+    // オブジェクト群復元
+    env.simObjects.forEach(item => {
+        item.body.setPosition(planck.Vec2(item.initX, item.initY));
+        item.body.setAngle(item.initAngle);
+        item.body.setLinearVelocity(planck.Vec2(0, 0));
+        item.body.setAngularVelocity(0);
+        item.body.setAwake(true);
+    });
+}
+
+function runAutoSearch() {
+    const target = document.getElementById('searchTarget').value;
+    rawSearchResults = { ball_left: [], ball_right: [], box: [] };
+
+    // ⚡ 1度だけWorldとFixtureを構築
+    const simEnv = createSimEnvironment();
+
+    if (target === 'all' || target === 'ball_both' || target === 'ball_left') {
+        for (let y = 0; y <= 500; y += 4) {
+            const turns = simulateKillTurnsFast(simEnv, 'ball', { isLeft: true, y: y });
+            if (turns > 0) {
+                rawSearchResults.ball_left.push({ val: y, turns: turns });
+            }
+        }
+    }
+
+    if (target === 'all' || target === 'ball_both' || target === 'ball_right') {
+        for (let y = 0; y <= 500; y += 4) {
+            const turns = simulateKillTurnsFast(simEnv, 'ball', { isLeft: false, y: y });
+            if (turns > 0) {
+                rawSearchResults.ball_right.push({ val: y, turns: turns });
+            }
+        }
+    }
+
+    if (target === 'all' || target === 'box') {
+        for (let x = 0; x <= 920; x += 8) {
+            const turns = simulateKillTurnsFast(simEnv, 'box', { x: x });
+            if (turns > 0) {
+                rawSearchResults.box.push({ val: x, turns: turns });
+            }
+        }
+    }
+
+    displaySearchResults(rawSearchResults);
+}
+
+function simulateKillTurnsFast(env, type, params) {
+    // 高速リセット
+    resetSimEnvironment(env);
+    const { simWorld, simHina } = env;
     const projMask = CATEGORY_STATIC | CATEGORY_DYNAMIC | CATEGORY_HINA | CATEGORY_PURPLE;
 
+    let activeProjectiles = [];
+    let killTurn = 0;
+
     for (let turn = 1; turn <= 5; turn++) {
+        let pBody = null;
         if (type === 'ball') {
             const launchX = params.isLeft ? -BALL_RADIUS_PX : (920 + BALL_RADIUS_PX);
-            let ball = simWorld.createBody({
+            pBody = simWorld.createBody({
                 type: 'dynamic',
                 position: planck.Vec2(launchX / PPU, params.y / PPU)
             });
-            ball.createFixture(planck.Circle(0.22), { 
+            pBody.createFixture(planck.Circle(0.22), { 
                 density: 1.5, friction: 0.2, restitution: 0.5,
                 filterCategoryBits: CATEGORY_PROJECTILE, filterMaskBits: projMask 
             });
-            ball.setLinearVelocity(planck.Vec2(params.isLeft ? 20.0 : -20.0, -1.0));
+            pBody.setLinearVelocity(planck.Vec2(params.isLeft ? 20.0 : -20.0, -1.0));
         } else if (type === 'box') {
-            let box = simWorld.createBody({
+            pBody = simWorld.createBody({
                 type: 'dynamic',
                 position: planck.Vec2(params.x / PPU, (500 + BOX_HALF_PX) / PPU)
             });
-            box.createFixture(planck.Box((40 / PPU) / 2, (40 / PPU) / 2), { 
+            pBody.createFixture(planck.Box((40 / PPU) / 2, (40 / PPU) / 2), { 
                 density: 3.0, friction: 0.5, restitution: 0.1,
                 filterCategoryBits: CATEGORY_PROJECTILE, filterMaskBits: projMask
             });
         }
+        activeProjectiles.push(pBody);
 
         for (let f = 0; f < 300; f++) {
             simWorld.step(1 / 60);
             let hPos = simHina.getPosition();
-            if (hPos.y < 0) return turn;
+            if (hPos.y < 0) {
+                killTurn = turn;
+                break;
+            }
         }
+
+        if (killTurn > 0) break;
     }
-    return 0;
+
+    // 発射した弾オブジェクトのみ破棄
+    activeProjectiles.forEach(b => simWorld.destroyBody(b));
+
+    return killTurn;
 }
 
 function getGroupedRanges(items, step) {
@@ -599,15 +656,43 @@ function clearMarkers() {
     document.getElementById('searchResult').innerText = "探索結果がここに表示されます";
 }
 
+function onObjTypeChange() {
+    const type = document.getElementById('objType').value;
+    const wInput = document.getElementById('newW');
+    const hInput = document.getElementById('newH');
+
+    if (type === 'preset_tree') {
+        wInput.value = 45;
+        hInput.value = 90;
+    } else if (type === 'preset_snowman') {
+        wInput.value = 50;
+        hInput.value = 75;
+    }
+}
+
 function addObjectFromUI() {
     const type = document.getElementById('objType').value;
     const x = parseFloat(document.getElementById('newX').value);
     const y = parseFloat(document.getElementById('newY').value);
     const w = parseFloat(document.getElementById('newW').value);
     const h = parseFloat(document.getElementById('newH').value);
+    const angleDeg = parseFloat(document.getElementById('newAngle').value) || 0;
 
-    customObjects.push({ type, x, y, w, h, angle: 0 });
+    customObjects.push({ type, x, y, w, h, angle: degToRad(angleDeg) });
     initScene();
+}
+
+function updateSelectedAngle() {
+    if (draggedTarget === null) return;
+    const deg = parseFloat(document.getElementById('selectedAngle').value) || 0;
+    const rad = degToRad(deg);
+
+    if (draggedTarget === 'hina') {
+        hinaData.angle = rad;
+    } else if (typeof draggedTarget === 'number' && customObjects[draggedTarget]) {
+        customObjects[draggedTarget].angle = rad;
+    }
+    buildPhysicsWorld(false);
 }
 
 function getPointerPos(e) {
@@ -640,7 +725,7 @@ function handleStart(e) {
     if (Math.abs(mouse.x - hinaData.x) < 25 && Math.abs(mouse.y - hinaData.y) < 35) {
         isDragging = true;
         draggedTarget = 'hina';
-        updateUISelection("雛ちゃん", hinaData.x, hinaData.y);
+        updateUISelection("雛ちゃん", hinaData.x, hinaData.y, hinaData.angle);
         return;
     }
 
@@ -655,8 +740,10 @@ function handleStart(e) {
             if (obj.type === 'dynamic') label = '動くブロック[' + i + ']';
             if (obj.type === 'green_pass') label = '投擲物透過(緑)[' + i + ']';
             if (obj.type === 'purple_pass') label = '雛透過(紫)[' + i + ']';
+            if (obj.type === 'preset_tree') label = '🌲 木[' + i + ']';
+            if (obj.type === 'preset_snowman') label = '☃️ 雪だるま[' + i + ']';
 
-            updateUISelection(label, obj.x, obj.y);
+            updateUISelection(label, obj.x, obj.y, obj.angle);
             return;
         }
     }
@@ -670,7 +757,7 @@ function handleMove(e) {
     if (draggedTarget === 'hina') {
         hinaData.x = Math.round(mouse.x);
         hinaData.y = Math.round(mouse.y);
-        updateUISelection("雛ちゃん", hinaData.x, hinaData.y);
+        updateUISelection("雛ちゃん", hinaData.x, hinaData.y, hinaData.angle);
     } else if (typeof draggedTarget === 'number') {
         customObjects[draggedTarget].x = Math.round(mouse.x);
         customObjects[draggedTarget].y = Math.round(mouse.y);
@@ -681,8 +768,10 @@ function handleMove(e) {
         if (obj.type === 'dynamic') label = '動くブロック[' + draggedTarget + ']';
         if (obj.type === 'green_pass') label = '投擲物透過(緑)[' + draggedTarget + ']';
         if (obj.type === 'purple_pass') label = '雛透過(紫)[' + draggedTarget + ']';
+        if (obj.type === 'preset_tree') label = '🌲 木[' + draggedTarget + ']';
+        if (obj.type === 'preset_snowman') label = '☃️ 雪だるま[' + draggedTarget + ']';
 
-        updateUISelection(label, obj.x, obj.y);
+        updateUISelection(label, obj.x, obj.y, obj.angle);
     }
     buildPhysicsWorld(false);
 }
@@ -698,10 +787,11 @@ canvas.addEventListener('touchstart', handleStart, { passive: false });
 canvas.addEventListener('touchmove', handleMove, { passive: false });
 window.addEventListener('touchend', handleEnd);
 
-function updateUISelection(name, x, y) {
+function updateUISelection(name, x, y, radAngle) {
     document.getElementById('selectedName').innerText = name;
     document.getElementById('selectedX').value = x;
     document.getElementById('selectedY').value = y;
+    document.getElementById('selectedAngle').value = radToDeg(radAngle || 0);
 }
 
 function draw() {
@@ -718,24 +808,45 @@ function draw() {
         if (uData && uData.id === 'hina') {
             ctx.fillStyle = '#ff4444';
             ctx.fillRect(-(0.3 * PPU) / 2, -(0.7 * PPU) / 2, 0.3 * PPU, 0.7 * PPU);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(-(0.3 * PPU) / 4, (0.7 * PPU) / 4, 0.15 * PPU, 0.1 * PPU);
         } else if (uData && uData.id === 'custom') {
             const obj = customObjects[uData.index];
             if (obj.type === 'static') {
                 ctx.fillStyle = '#777777';
+                ctx.fillRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
             } else if (obj.type === 'dynamic') {
                 ctx.fillStyle = '#44aa44';
+                ctx.fillRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
             } else if (obj.type === 'green_pass') {
                 ctx.fillStyle = 'rgba(0, 255, 100, 0.4)';
                 ctx.strokeStyle = '#00ff66';
                 ctx.lineWidth = 2;
                 ctx.strokeRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
+                ctx.fillRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
             } else if (obj.type === 'purple_pass') {
                 ctx.fillStyle = 'rgba(180, 0, 255, 0.4)';
                 ctx.strokeStyle = '#cc00ff';
                 ctx.lineWidth = 2;
                 ctx.strokeRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
+                ctx.fillRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
+            } else if (obj.type === 'preset_tree') {
+                ctx.fillStyle = '#228b22';
+                ctx.beginPath();
+                ctx.moveTo(0, -obj.h / 2);
+                ctx.lineTo(-obj.w / 2, obj.h / 2);
+                ctx.lineTo(obj.w / 2, obj.h / 2);
+                ctx.closePath();
+                ctx.fill();
+                ctx.fillStyle = '#8b4513';
+                ctx.fillRect(-obj.w / 6, obj.h / 4, obj.w / 3, obj.h / 4);
+            } else if (obj.type === 'preset_snowman') {
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.arc(0, obj.h / 6, obj.w / 2.5, 0, Math.PI * 2);
+                ctx.arc(0, -obj.h / 4, obj.w / 3.5, 0, Math.PI * 2);
+                ctx.fill();
             }
-            ctx.fillRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
         }
         ctx.restore();
     }
@@ -757,7 +868,6 @@ function draw() {
         ctx.restore();
     });
 
-    // 探索マッピング (左発射はX=0、右発射はX=920にドット表示)
     rawSearchResults.ball_left.forEach(item => {
         ctx.fillStyle = (item.turns === 1) ? '#ffff00' : '#aa00ff';
         ctx.beginPath();
