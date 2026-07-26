@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>雛ブレ物理予測エディタ</title>
+    <title>雛ブレ2nd 物理予測エディタ (ターン管理 & 高速化版)</title>
     <script src="https://cdn.jsdelivr.net/npm/planck-js@0.3.27/dist/planck.min.js"></script>
     <style>
         * { box-sizing: border-box; }
@@ -22,6 +22,7 @@
         .manual-launch-group select, .manual-launch-group input { font-size: 11px; padding: 2px 4px; }
         .manual-launch-group button { width: auto; padding: 3px 8px; margin: 0; font-size: 11px; background: #0077aa; border-color: #0099cc; }
         .manual-launch-group button:hover { background: #0088cc; }
+        .manual-launch-group button:disabled { background: #444; border-color: #555; color: #888; cursor: not-allowed; }
 
         .sidebar { background: #333; padding: 10px; border-radius: 8px; width: 300px; font-size: 13px; display: flex; flex-direction: column; gap: 8px; }
         .panel { background: #444; padding: 8px; border-radius: 6px; }
@@ -54,7 +55,8 @@
         button.btn-delete { background: #c0392b; border-color: #e74c3c; margin-top: 6px; }
         button.btn-delete:hover { background: #e74c3c; }
         
-        .result-box { margin-top: 4px; font-size: 11px; color: #00ffcc; height: 95px; overflow-y: auto; background: #181818; padding: 4px; border-radius: 4px; border: 1px solid #333; line-height: 1.3; }
+        .turn-display { background: #111; color: #ffea00; font-weight: bold; text-align: center; padding: 4px; border-radius: 4px; border: 1px solid #666; margin-bottom: 4px; font-size: 14px; }
+        .result-box { margin-top: 4px; font-size: 11px; color: #00ffcc; height: 110px; overflow-y: auto; background: #181818; padding: 6px; border-radius: 4px; border: 1px solid #333; line-height: 1.4; }
     </style>
 </head>
 <body>
@@ -79,7 +81,7 @@
                     </select>
                     <span id="manualAxisLabel">Y:</span>
                     <input type="number" id="manualPosVal" value="250" style="width: 48px;">
-                    <button onclick="launchFromManualUI()">発射</button>
+                    <button id="btnManualLaunch" onclick="launchFromManualUI()">発射</button>
                 </div>
 
                 <div id="modeHint" style="font-size: 11px; color: #fffa00; font-weight: bold;">
@@ -91,6 +93,7 @@
         <div class="sidebar">
             <div class="panel">
                 <h3>1. アクション & コントロール</h3>
+                <div id="turnInfo" class="turn-display">Turn: 1</div>
                 <button id="btnPlayPause" class="play-pause paused" onclick="togglePlayPause()">⏸ 物理停止中 (ドラッグ可)</button>
                 
                 <div class="square-btn-container">
@@ -104,7 +107,7 @@
             </div>
 
             <div class="panel ai-panel">
-                <h3>🤖 自動探索 (最大5ターン)</h3>
+                <h3>🤖 自動探索 (静止判定・最大5手)</h3>
                 <div class="control-group">
                     <label>探索対象:</label>
                     <select id="searchTarget">
@@ -197,6 +200,10 @@ let isPlaying = false;
 let spawnedBodies = [];
 let hinaBodyRef = null;
 
+let currentTurn = 1;
+let isWaitingForSettlement = false;
+let launchFrameCounter = 0;
+
 let currentActionMode = 'drag';
 let rawSearchResults = { ball_left: [], ball_right: [], box: [] };
 
@@ -206,9 +213,17 @@ let draggedTarget = null;
 function degToRad(deg) { return deg * Math.PI / 180; }
 function radToDeg(rad) { return Math.round(rad * 180 / Math.PI); }
 
+function updateTurnUI() {
+    document.getElementById('turnInfo').innerText = `Turn: ${currentTurn}`;
+}
+
 function initScene() {
     spawnedBodies = [];
     isPlaying = false;
+    isWaitingForSettlement = false;
+    currentTurn = 1;
+    updateTurnUI();
+    updateLaunchButtonsState(true);
     updatePlayPauseButton();
     buildPhysicsWorld(false); 
 }
@@ -359,7 +374,12 @@ function updateManualAxisLabel() {
     label.innerText = (type === 'box') ? 'X:' : 'Y:';
 }
 
+function updateLaunchButtonsState(enabled) {
+    document.getElementById('btnManualLaunch').disabled = !enabled;
+}
+
 function launchFromManualUI() {
+    if (isWaitingForSettlement) return;
     const type = document.getElementById('manualType').value;
     const val = parseFloat(document.getElementById('manualPosVal').value) || 0;
 
@@ -369,6 +389,8 @@ function launchFromManualUI() {
 }
 
 function fireBallAtY(targetY, isLeft) {
+    if (isWaitingForSettlement) return;
+
     if (!isPlaying) {
         isPlaying = true;
         setBodiesMotionState(true);
@@ -385,7 +407,7 @@ function fireBallAtY(targetY, isLeft) {
         gravityScale: 1.0
     });
 
-    const projMask = CATEGORY_STATIC | CATEGORY_DYNAMIC | CATEGORY_HINA | CATEGORY_PURPLE;
+    const projMask = CATEGORY_STATIC | CATEGORY_DYNAMIC | CATEGORY_HINA | CATEGORY_PURPLE | CATEGORY_PROJECTILE;
     ball.createFixture(planck.Circle(BALL_RADIUS_M), { 
         density: 6.58,
         friction: 0.2, 
@@ -399,10 +421,16 @@ function fireBallAtY(targetY, isLeft) {
     ball.setUserData({ id: 'projectile' });
 
     spawnedBodies.push({ body: ball, type: 'ball' });
+    
+    isWaitingForSettlement = true;
+    launchFrameCounter = 0;
+    updateLaunchButtonsState(false);
     setActionMode('drag');
 }
 
 function dropBoxAtX(targetX) {
+    if (isWaitingForSettlement) return;
+
     if (!isPlaying) {
         isPlaying = true;
         setBodiesMotionState(true);
@@ -417,7 +445,7 @@ function dropBoxAtX(targetX) {
         gravityScale: 0.8
     });
 
-    const projMask = CATEGORY_STATIC | CATEGORY_DYNAMIC | CATEGORY_HINA | CATEGORY_PURPLE;
+    const projMask = CATEGORY_STATIC | CATEGORY_DYNAMIC | CATEGORY_HINA | CATEGORY_PURPLE | CATEGORY_PROJECTILE;
     box.createFixture(planck.Box(BOX_SIZE_M / 2, BOX_SIZE_M / 2), {
         density: 8.33,
         friction: 0.5,
@@ -428,12 +456,20 @@ function dropBoxAtX(targetX) {
     box.setUserData({ id: 'projectile' });
 
     spawnedBodies.push({ body: box, type: 'box' });
+
+    isWaitingForSettlement = true;
+    launchFrameCounter = 0;
+    updateLaunchButtonsState(false);
     setActionMode('drag');
 }
 
 function resetPositions() {
     spawnedBodies = [];
     isPlaying = false;
+    isWaitingForSettlement = false;
+    currentTurn = 1;
+    updateTurnUI();
+    updateLaunchButtonsState(true);
     updatePlayPauseButton();
     buildPhysicsWorld(false);
 }
@@ -526,25 +562,37 @@ function resetSimEnvironment(env) {
     });
 }
 
+function isWorldSettled(w) {
+    for (let b = w.getBodyList(); b; b = b.getNext()) {
+        if (b.getType() === 'dynamic') {
+            let v = b.getLinearVelocity();
+            let ang = b.getAngularVelocity();
+            if (v.lengthSquared() > 0.002 || Math.abs(ang) > 0.02) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 function runAutoSearch() {
     const target = document.getElementById('searchTarget').value;
     rawSearchResults = { ball_left: [], ball_right: [], box: [] };
 
     const simEnv = createSimEnvironment();
 
-    // 2段階探索 (ワンキルが無い時だけ1px刻みで精密探索)
     if (target === 'all' || target === 'ball_both' || target === 'ball_left') {
         let foundOneKill = false;
         for (let y = 0; y <= 500; y += 4) {
-            const turns = simulateKillTurnsFast(simEnv, 'ball', { isLeft: true, y: y });
-            if (turns === 1) foundOneKill = true;
-            if (turns > 0) rawSearchResults.ball_left.push({ val: y, turns: turns });
+            const res = simulateKillTurnsFast(simEnv, 'ball', { isLeft: true, y: y });
+            if (res.turns === 1) foundOneKill = true;
+            if (res.turns > 0) rawSearchResults.ball_left.push({ val: y, turns: res.turns, steps: res.steps });
         }
         if (!foundOneKill) {
             rawSearchResults.ball_left = [];
             for (let y = 0; y <= 500; y += 1) {
-                const turns = simulateKillTurnsFast(simEnv, 'ball', { isLeft: true, y: y });
-                if (turns > 0) rawSearchResults.ball_left.push({ val: y, turns: turns });
+                const res = simulateKillTurnsFast(simEnv, 'ball', { isLeft: true, y: y });
+                if (res.turns > 0) rawSearchResults.ball_left.push({ val: y, turns: res.turns, steps: res.steps });
             }
         }
     }
@@ -552,15 +600,15 @@ function runAutoSearch() {
     if (target === 'all' || target === 'ball_both' || target === 'ball_right') {
         let foundOneKill = false;
         for (let y = 0; y <= 500; y += 4) {
-            const turns = simulateKillTurnsFast(simEnv, 'ball', { isLeft: false, y: y });
-            if (turns === 1) foundOneKill = true;
-            if (turns > 0) rawSearchResults.ball_right.push({ val: y, turns: turns });
+            const res = simulateKillTurnsFast(simEnv, 'ball', { isLeft: false, y: y });
+            if (res.turns === 1) foundOneKill = true;
+            if (res.turns > 0) rawSearchResults.ball_right.push({ val: y, turns: res.turns, steps: res.steps });
         }
         if (!foundOneKill) {
             rawSearchResults.ball_right = [];
             for (let y = 0; y <= 500; y += 1) {
-                const turns = simulateKillTurnsFast(simEnv, 'ball', { isLeft: false, y: y });
-                if (turns > 0) rawSearchResults.ball_right.push({ val: y, turns: turns });
+                const res = simulateKillTurnsFast(simEnv, 'ball', { isLeft: false, y: y });
+                if (res.turns > 0) rawSearchResults.ball_right.push({ val: y, turns: res.turns, steps: res.steps });
             }
         }
     }
@@ -568,15 +616,15 @@ function runAutoSearch() {
     if (target === 'all' || target === 'box') {
         let foundOneKill = false;
         for (let x = 0; x <= 920; x += 8) {
-            const turns = simulateKillTurnsFast(simEnv, 'box', { x: x });
-            if (turns === 1) foundOneKill = true;
-            if (turns > 0) rawSearchResults.box.push({ val: x, turns: turns });
+            const res = simulateKillTurnsFast(simEnv, 'box', { x: x });
+            if (res.turns === 1) foundOneKill = true;
+            if (res.turns > 0) rawSearchResults.box.push({ val: x, turns: res.turns, steps: res.steps });
         }
         if (!foundOneKill) {
             rawSearchResults.box = [];
             for (let x = 0; x <= 920; x += 2) {
-                const turns = simulateKillTurnsFast(simEnv, 'box', { x: x });
-                if (turns > 0) rawSearchResults.box.push({ val: x, turns: turns });
+                const res = simulateKillTurnsFast(simEnv, 'box', { x: x });
+                if (res.turns > 0) rawSearchResults.box.push({ val: x, turns: res.turns, steps: res.steps });
             }
         }
     }
@@ -587,13 +635,16 @@ function runAutoSearch() {
 function simulateKillTurnsFast(env, type, params) {
     resetSimEnvironment(env);
     const { simWorld, simHina } = env;
-    const projMask = CATEGORY_STATIC | CATEGORY_DYNAMIC | CATEGORY_HINA | CATEGORY_PURPLE;
+    const projMask = CATEGORY_STATIC | CATEGORY_DYNAMIC | CATEGORY_HINA | CATEGORY_PURPLE | CATEGORY_PROJECTILE;
 
     let activeProjectiles = [];
     let killTurn = 0;
+    let stepLog = [];
 
     for (let turn = 1; turn <= 5; turn++) {
         let pBody = null;
+        let actionName = "";
+
         if (type === 'ball') {
             const launchX = params.isLeft ? -BALL_RADIUS_PX : (920 + BALL_RADIUS_PX);
             pBody = simWorld.createBody({
@@ -607,6 +658,7 @@ function simulateKillTurnsFast(env, type, params) {
                 filterCategoryBits: CATEGORY_PROJECTILE, filterMaskBits: projMask 
             });
             pBody.setLinearVelocity(planck.Vec2(params.isLeft ? 20.0 : -20.0, -1.0));
+            actionName = (params.isLeft ? "左" : "右") + "Y=" + params.y;
         } else if (type === 'box') {
             pBody = simWorld.createBody({
                 type: 'dynamic',
@@ -618,23 +670,40 @@ function simulateKillTurnsFast(env, type, params) {
                 density: 8.33, friction: 0.5, restitution: 0.1,
                 filterCategoryBits: CATEGORY_PROJECTILE, filterMaskBits: projMask
             });
+            actionName = "上空X=" + params.x;
         }
-        activeProjectiles.push(pBody);
 
-        for (let f = 0; f < 300; f++) {
+        activeProjectiles.push(pBody);
+        stepLog.push(actionName);
+
+        let startHinaPos = simHina.getPosition().clone();
+        let hinaMoved = false;
+
+        for (let f = 0; f < 1800; f++) {
             simWorld.step(1 / 60);
+
             let hPos = simHina.getPosition();
+            if (planck.Vec2.distance(startHinaPos, hPos) > 0.05) {
+                hinaMoved = true;
+            }
+
             if (hPos.y < 0) {
                 killTurn = turn;
+                break;
+            }
+
+            // 高速化のため、チェックは5フレームごとに行う
+            if (f > 180 && f % 5 === 0 && isWorldSettled(simWorld)) {
                 break;
             }
         }
 
         if (killTurn > 0) break;
+        if (!hinaMoved) break;
     }
 
     activeProjectiles.forEach(b => simWorld.destroyBody(b));
-    return killTurn;
+    return { turns: killTurn, steps: stepLog };
 }
 
 function getGroupedRanges(items, step) {
@@ -643,25 +712,27 @@ function getGroupedRanges(items, step) {
     let byTurns = {};
     items.forEach(item => {
         if (!byTurns[item.turns]) byTurns[item.turns] = [];
-        byTurns[item.turns].push(item.val);
+        byTurns[item.turns].push(item);
     });
 
     let results = [];
     Object.keys(byTurns).forEach(t => {
         let arr = byTurns[t];
-        let start = arr[0];
-        let prev = arr[0];
+        let start = arr[0].val;
+        let prev = arr[0].val;
+        let lastSteps = arr[0].steps;
 
         for (let i = 1; i < arr.length; i++) {
-            if (arr[i] === prev + step) {
-                prev = arr[i];
+            if (arr[i].val === prev + step) {
+                prev = arr[i].val;
             } else {
-                results.push({ start, end: prev, turns: parseInt(t) });
-                start = arr[i];
-                prev = arr[i];
+                results.push({ start, end: prev, turns: parseInt(t), steps: lastSteps });
+                start = arr[i].val;
+                prev = arr[i].val;
+                lastSteps = arr[i].steps;
             }
         }
-        results.push({ start, end: prev, turns: parseInt(t) });
+        results.push({ start, end: prev, turns: parseInt(t), steps: lastSteps });
     });
 
     return results;
@@ -672,7 +743,14 @@ function displaySearchResults(raw) {
     let html = '';
 
     const formatLine = (r, axis) => {
-        const turnStr = (r.turns === 1) ? '' : ` (${r.turns}ターン)`;
+        let turnStr = "";
+        if (r.turns === 1) {
+            turnStr = " ★ワンキル";
+        } else {
+            let recipeStr = r.steps.map((s, idx) => `${idx + 1}:${s}`).join(' → ');
+            turnStr = ` (${r.turns}手)<br>&nbsp;&nbsp;↳ 手順: ${recipeStr}`;
+        }
+
         if (r.start === r.end) {
             return `${axis} ${r.start}px${turnStr}`;
         } else {
@@ -761,13 +839,17 @@ function handleStart(e) {
     const mouse = getPointerPos(e);
 
     if (currentActionMode === 'ball') {
-        const isLeft = (mouse.x < canvas.width / 2);
-        fireBallAtY(Math.round(mouse.y), isLeft);
+        if (!isWaitingForSettlement) {
+            const isLeft = (mouse.x < canvas.width / 2);
+            fireBallAtY(Math.round(mouse.y), isLeft);
+        }
         return;
     }
 
     if (currentActionMode === 'box') {
-        dropBoxAtX(Math.round(mouse.x));
+        if (!isWaitingForSettlement) {
+            dropBoxAtX(Math.round(mouse.x));
+        }
         return;
     }
 
@@ -947,13 +1029,31 @@ function animate() {
     if (isPlaying) {
         world.step(1 / 60);
 
+        // 雛ちゃん落下判定
         if (hinaBodyRef) {
             const hPos = hinaBodyRef.getPosition();
             if (hPos.y < 0) {
-                resetPositions();
+                resetPositions(); // 落下時はTurn1に戻して位置リセット
+            }
+        }
+
+        // 投擲物の静止・タイムアウト監視（手動発射時）
+        if (isWaitingForSettlement) {
+            launchFrameCounter++;
+
+            // 180フレーム(3秒)経過以降から静止判定を開始し、最長1800フレーム(30秒)で強制停止
+            const isSettled = (launchFrameCounter > 180 && launchFrameCounter % 5 === 0 && isWorldSettled(world));
+            const isTimeout = (launchFrameCounter >= 1800);
+
+            if (isSettled || isTimeout) {
+                isWaitingForSettlement = false;
+                currentTurn++;
+                updateTurnUI();
+                updateLaunchButtonsState(true);
             }
         }
     }
+
     draw();
     requestAnimationFrame(animate);
 }
