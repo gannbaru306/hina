@@ -2,61 +2,65 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>雛ブレ2nd 物理予測エディタ (ターン管理 & 高速化版)</title>
+    <title>雛ブレ2nd 物理予測エディタ (1画面フィット版)</title>
     <script src="https://cdn.jsdelivr.net/npm/planck-js@0.3.27/dist/planck.min.js"></script>
     <style>
         * { box-sizing: border-box; }
-        body { background: #222; color: #fff; font-family: sans-serif; margin: 0; padding: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; overflow: hidden; }
-        h1 { margin: 0 0 8px 0; font-size: 20px; text-align: center; }
+        html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; font-family: sans-serif; background: #222; color: #fff; }
         
-        .main-container { display: flex; gap: 12px; max-width: 1250px; width: 100%; justify-content: center; align-items: flex-start; }
+        body { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 6px; }
+        h1 { margin: 0 0 4px 0; font-size: 16px; text-align: center; }
         
-        .canvas-area { display: flex; flex-direction: column; width: 920px; }
-        canvas { background: #111; border: 2px solid #555; display: block; cursor: crosshair; touch-action: none; width: 920px; height: 500px; }
+        .main-container { display: flex; gap: 8px; width: 100%; max-width: 1240px; height: calc(100vh - 32px); justify-content: center; align-items: stretch; }
         
-        .bottom-bar { display: flex; gap: 8px; margin-top: 6px; align-items: center; justify-content: space-between; }
-        .reset-group { display: flex; gap: 6px; }
-        .reset-group button { padding: 5px 10px; font-size: 11px; width: auto; margin: 0; }
+        /* 左側：キャンバスエリア */
+        .canvas-area { display: flex; flex-direction: column; flex: 1; max-width: 920px; height: 100%; justify-content: space-between; }
+        canvas { background: #111; border: 2px solid #555; display: block; cursor: crosshair; touch-action: none; width: 100%; height: auto; aspect-ratio: 920 / 500; max-height: calc(100vh - 70px); object-fit: contain; }
+        
+        .bottom-bar { display: flex; gap: 6px; margin-top: 4px; align-items: center; justify-content: space-between; font-size: 11px; }
+        .reset-group { display: flex; gap: 4px; }
+        .reset-group button { padding: 3px 6px; font-size: 10px; width: auto; margin: 0; }
 
-        .manual-launch-group { display: flex; align-items: center; gap: 5px; background: #333; padding: 4px 8px; border-radius: 4px; border: 1px solid #555; font-size: 11px; }
-        .manual-launch-group select, .manual-launch-group input { font-size: 11px; padding: 2px 4px; }
-        .manual-launch-group button { width: auto; padding: 3px 8px; margin: 0; font-size: 11px; background: #0077aa; border-color: #0099cc; }
+        .manual-launch-group { display: flex; align-items: center; gap: 4px; background: #333; padding: 2px 6px; border-radius: 4px; border: 1px solid #555; font-size: 10px; }
+        .manual-launch-group select, .manual-launch-group input { font-size: 10px; padding: 1px 3px; }
+        .manual-launch-group button { width: auto; padding: 2px 6px; margin: 0; font-size: 10px; background: #0077aa; border-color: #0099cc; }
         .manual-launch-group button:hover { background: #0088cc; }
         .manual-launch-group button:disabled { background: #444; border-color: #555; color: #888; cursor: not-allowed; }
 
-        .sidebar { background: #333; padding: 10px; border-radius: 8px; width: 300px; font-size: 13px; display: flex; flex-direction: column; gap: 8px; }
-        .panel { background: #444; padding: 8px; border-radius: 6px; }
-        .panel h3 { margin: 0 0 6px 0; font-size: 13px; border-bottom: 1px solid #666; padding-bottom: 2px; color: #44ffff; }
+        /* 右側：サイドバーエリア (縦に収まるよう全UIを圧縮) */
+        .sidebar { background: #333; padding: 6px; border-radius: 6px; width: 300px; font-size: 11px; display: flex; flex-direction: column; gap: 6px; height: 100%; overflow-y: auto; }
+        .panel { background: #444; padding: 6px; border-radius: 4px; }
+        .panel h3 { margin: 0 0 4px 0; font-size: 11px; border-bottom: 1px solid #666; padding-bottom: 1px; color: #44ffff; }
         .panel.ai-panel { border: 1px solid #00ffcc; }
         .panel.ai-panel h3 { color: #00ffcc; border-bottom-color: #008866; }
         
-        .control-group { margin: 4px 0; display: flex; align-items: center; justify-content: space-between; }
-        .control-group label { font-size: 11px; }
-        input[type="number"], select { width: 70px; background: #222; color: #fff; border: 1px solid #666; padding: 2px; border-radius: 4px; font-size: 12px; }
+        .control-group { margin: 2px 0; display: flex; align-items: center; justify-content: space-between; }
+        .control-group label { font-size: 10px; }
+        input[type="number"], select { width: 60px; background: #222; color: #fff; border: 1px solid #666; padding: 1px 3px; border-radius: 3px; font-size: 10px; }
         
-        button { width: 100%; padding: 5px; margin-top: 4px; font-size: 12px; cursor: pointer; font-weight: bold; background: #555; color: #fff; border: 1px solid #777; border-radius: 4px; }
+        button { width: 100%; padding: 3px; margin-top: 2px; font-size: 10px; cursor: pointer; font-weight: bold; background: #555; color: #fff; border: 1px solid #777; border-radius: 3px; }
         button:hover { background: #666; }
         
-        .square-btn-container { display: flex; gap: 8px; margin-bottom: 4px; }
+        .square-btn-container { display: flex; gap: 4px; margin-bottom: 2px; }
         .square-btn {
-            width: 100%; height: 42px; font-size: 11px; display: flex; align-items: center; justify-content: center; gap: 4px;
-            background: #333; border: 2px solid #666; border-radius: 6px; cursor: pointer; user-select: none;
+            width: 100%; height: 30px; font-size: 10px; display: flex; align-items: center; justify-content: center; gap: 2px;
+            background: #333; border: 1px solid #666; border-radius: 4px; cursor: pointer; user-select: none;
         }
-        .square-btn.active-ball { background: #005588; border-color: #00ccff; color: #00ffff; box-shadow: 0 0 6px #00ccff; }
-        .square-btn.active-box { background: #884400; border-color: #ff9900; color: #ffcc00; box-shadow: 0 0 6px #ff9900; }
+        .square-btn.active-ball { background: #005588; border-color: #00ccff; color: #00ffff; box-shadow: 0 0 4px #00ccff; }
+        .square-btn.active-box { background: #884400; border-color: #ff9900; color: #ffcc00; box-shadow: 0 0 4px #ff9900; }
 
-        button.play-pause { background: #27ae60; border-color: #2ecc71; margin-bottom: 4px; font-size: 12px; }
+        button.play-pause { background: #27ae60; border-color: #2ecc71; margin-bottom: 2px; font-size: 10px; }
         button.play-pause.paused { background: #e67e22; border-color: #f39c12; }
 
         button.ai { background: #008844; border-color: #00cc66; }
-        button.reset-marker { background: #886600; border-color: #bb9900; margin-top: 4px; }
+        button.reset-marker { background: #886600; border-color: #bb9900; margin-top: 2px; }
         .btn-reset-pos { background: #d35400; border-color: #e67e22; }
         .btn-reset-all { background: #a30000; border-color: #d60000; }
-        button.btn-delete { background: #c0392b; border-color: #e74c3c; margin-top: 6px; }
+        button.btn-delete { background: #c0392b; border-color: #e74c3c; margin-top: 2px; }
         button.btn-delete:hover { background: #e74c3c; }
         
-        .turn-display { background: #111; color: #ffea00; font-weight: bold; text-align: center; padding: 4px; border-radius: 4px; border: 1px solid #666; margin-bottom: 4px; font-size: 14px; }
-        .result-box { margin-top: 4px; font-size: 11px; color: #00ffcc; height: 110px; overflow-y: auto; background: #181818; padding: 6px; border-radius: 4px; border: 1px solid #333; line-height: 1.4; }
+        .turn-display { background: #111; color: #ffea00; font-weight: bold; text-align: center; padding: 2px; border-radius: 3px; border: 1px solid #666; margin-bottom: 2px; font-size: 12px; }
+        .result-box { margin-top: 2px; font-size: 10px; color: #00ffcc; flex: 1; min-height: 50px; max-height: 90px; overflow-y: auto; background: #181818; padding: 4px; border-radius: 3px; border: 1px solid #333; line-height: 1.3; }
     </style>
 </head>
 <body>
@@ -80,11 +84,11 @@
                         <option value="box">ボックス</option>
                     </select>
                     <span id="manualAxisLabel">Y:</span>
-                    <input type="number" id="manualPosVal" value="250" style="width: 48px;">
+                    <input type="number" id="manualPosVal" value="250" style="width: 40px;">
                     <button id="btnManualLaunch" onclick="launchFromManualUI()">発射</button>
                 </div>
 
-                <div id="modeHint" style="font-size: 11px; color: #fffa00; font-weight: bold;">
+                <div id="modeHint" style="font-size: 10px; color: #fffa00; font-weight: bold;">
                     モード: ドラッグ移動
                 </div>
             </div>
@@ -106,11 +110,11 @@
                 </div>
             </div>
 
-            <div class="panel ai-panel">
-                <h3>🤖 自動探索 (静止判定・最大5手)</h3>
+            <div class="panel ai-panel" style="display: flex; flex-direction: column; flex: 1;">
+                <h3>🤖 自動探索 (静止判定)</h3>
                 <div class="control-group">
                     <label>探索対象:</label>
-                    <select id="searchTarget">
+                    <select id="searchTarget" style="width: 110px;">
                         <option value="all">全項目 (ボール＋ボックス)</option>
                         <option value="ball_both">ボール (左右)</option>
                         <option value="ball_left">ボール (左)</option>
@@ -127,7 +131,7 @@
                 <h3>2. オブジェクト追加</h3>
                 <div class="control-group">
                     <label>種類:</label>
-                    <select id="objType" style="width: 130px;" onchange="onObjTypeChange()">
+                    <select id="objType" style="width: 110px;" onchange="onObjTypeChange()">
                         <option value="dynamic">動く(柱等)</option>
                         <option value="static">固定(床等)</option>
                         <option value="green_pass">投擲物すり抜け(緑)</option>
@@ -137,41 +141,41 @@
                     </select>
                 </div>
                 <div class="control-group">
-                    <label>初期X / Y:</label>
+                    <label>初期X/Y:</label>
                     <div>
-                        <input type="number" id="newX" value="460" style="width:32px;">
-                        <input type="number" id="newY" value="100" style="width:32px;">
+                        <input type="number" id="newX" value="460" style="width:28px;">
+                        <input type="number" id="newY" value="100" style="width:28px;">
                     </div>
                 </div>
                 <div class="control-group">
-                    <label>幅W / 高H / 角度:</label>
+                    <label>幅W/高H/角:</label>
                     <div>
-                        <input type="number" id="newW" value="180" style="width:32px;">
-                        <input type="number" id="newH" value="20" style="width:32px;">
-                        <input type="number" id="newAngle" value="0" style="width:32px;">
+                        <input type="number" id="newW" value="180" style="width:24px;">
+                        <input type="number" id="newH" value="20" style="width:24px;">
+                        <input type="number" id="newAngle" value="0" style="width:24px;">
                     </div>
                 </div>
                 <button onclick="addObjectFromUI()">オブジェクト追加</button>
             </div>
 
             <div class="panel">
-                <h3>3. 選択情報 & 角度変更</h3>
+                <h3>3. 選択情報</h3>
                 <div class="control-group">
                     <label>名前:</label>
-                    <span id="selectedName" style="font-size:11px; color:#fffa00;">なし</span>
+                    <span id="selectedName" style="font-size:10px; color:#fffa00;">なし</span>
                 </div>
                 <div class="control-group">
-                    <label>現在X / Y:</label>
+                    <label>現在X/Y:</label>
                     <div>
-                        <input type="number" id="selectedX" readonly style="background:#333; color:#aaa; width:32px;">
-                        <input type="number" id="selectedY" readonly style="background:#333; color:#aaa; width:32px;">
+                        <input type="number" id="selectedX" readonly style="background:#333; color:#aaa; width:28px;">
+                        <input type="number" id="selectedY" readonly style="background:#333; color:#aaa; width:28px;">
                     </div>
                 </div>
                 <div class="control-group">
-                    <label>角度 (deg):</label>
-                    <input type="number" id="selectedAngle" value="0" style="width:60px;" oninput="updateSelectedAngle()">
+                    <label>角度(deg):</label>
+                    <input type="number" id="selectedAngle" value="0" style="width:50px;" oninput="updateSelectedAngle()">
                 </div>
-                <button class="btn-delete" onclick="deleteSelectedObject()">選択オブジェクトを削除</button>
+                <button class="btn-delete" onclick="deleteSelectedObject()">選択削除</button>
             </div>
         </div>
     </div>
@@ -231,7 +235,6 @@ function initScene() {
 function buildPhysicsWorld(isFullSimulation) {
     world = new planck.World(planck.Vec2(0.0, -9.81));
 
-    // 🎎 雛ちゃん
     const hinaBodyType = isFullSimulation ? 'dynamic' : 'static';
     hinaBodyRef = world.createBody({
         type: hinaBodyType,
@@ -244,15 +247,11 @@ function buildPhysicsWorld(isFullSimulation) {
     
     const hinaMask = CATEGORY_STATIC | CATEGORY_DYNAMIC | CATEGORY_PROJECTILE | CATEGORY_GREEN;
     hinaBodyRef.createFixture(planck.Box(0.3 / 2, 0.7 / 2, planck.Vec2(0, -0.02)), { 
-        density: 3.81,
-        friction: 0.4, 
-        restitution: 0.2,
-        filterCategoryBits: CATEGORY_HINA,
-        filterMaskBits: hinaMask
+        density: 3.81, friction: 0.4, restitution: 0.2,
+        filterCategoryBits: CATEGORY_HINA, filterMaskBits: hinaMask
     });
     hinaBodyRef.setUserData({ id: 'hina' });
 
-    // 各種ブロック
     customObjects.forEach((obj, index) => {
         const isDynamic = (obj.type === 'dynamic' || obj.type === 'preset_tree' || obj.type === 'preset_snowman');
         const bType = (isFullSimulation && isDynamic) ? 'dynamic' : 'static';
@@ -267,26 +266,14 @@ function buildPhysicsWorld(isFullSimulation) {
         let catBits = CATEGORY_STATIC;
         let maskBits = 0xFFFF;
 
-        if (isDynamic) {
-            catBits = CATEGORY_DYNAMIC;
-            maskBits = 0xFFFF;
-        } else if (obj.type === 'static') {
-            catBits = CATEGORY_STATIC;
-            maskBits = 0xFFFF;
-        } else if (obj.type === 'green_pass') {
-            catBits = CATEGORY_GREEN;
-            maskBits = CATEGORY_HINA | CATEGORY_DYNAMIC;
-        } else if (obj.type === 'purple_pass') {
-            catBits = CATEGORY_PURPLE;
-            maskBits = CATEGORY_PROJECTILE | CATEGORY_DYNAMIC;
-        }
+        if (isDynamic) { catBits = CATEGORY_DYNAMIC; maskBits = 0xFFFF; }
+        else if (obj.type === 'static') { catBits = CATEGORY_STATIC; maskBits = 0xFFFF; }
+        else if (obj.type === 'green_pass') { catBits = CATEGORY_GREEN; maskBits = CATEGORY_HINA | CATEGORY_DYNAMIC; }
+        else if (obj.type === 'purple_pass') { catBits = CATEGORY_PURPLE; maskBits = CATEGORY_PROJECTILE | CATEGORY_DYNAMIC; }
 
         body.createFixture(planck.Box((obj.w / PPU) / 2, (obj.h / PPU) / 2), {
-            density: isDynamic ? 2.0 : 0.0,
-            friction: 0.5,
-            restitution: 0.2,
-            filterCategoryBits: catBits,
-            filterMaskBits: maskBits
+            density: isDynamic ? 2.0 : 0.0, friction: 0.5, restitution: 0.2,
+            filterCategoryBits: catBits, filterMaskBits: maskBits
         });
         body.setUserData({ id: 'custom', index: index });
     });
@@ -296,18 +283,9 @@ function setBodiesMotionState(enable) {
     if (!world) return;
     for (let b = world.getBodyList(); b; b = b.getNext()) {
         const uData = b.getUserData() || {};
-        
-        let isTarget = false;
-        if (uData.id === 'hina') {
-            isTarget = true;
-        } else if (uData.id === 'custom') {
-            const obj = customObjects[uData.index];
-            if (obj && (obj.type === 'dynamic' || obj.type === 'preset_tree' || obj.type === 'preset_snowman')) {
-                isTarget = true;
-            }
-        } else if (uData.id === 'projectile') {
-            isTarget = true;
-        }
+        let isTarget = (uData.id === 'hina' || uData.id === 'projectile' || 
+                       (uData.id === 'custom' && customObjects[uData.index] && 
+                       (customObjects[uData.index].type === 'dynamic' || customObjects[uData.index].type === 'preset_tree' || customObjects[uData.index].type === 'preset_snowman')));
 
         if (isTarget) {
             if (enable) {
@@ -344,11 +322,7 @@ function updatePlayPauseButton() {
 }
 
 function setActionMode(mode) {
-    if (currentActionMode === mode) {
-        currentActionMode = 'drag';
-    } else {
-        currentActionMode = mode;
-    }
+    currentActionMode = (currentActionMode === mode) ? 'drag' : mode;
 
     const btnBall = document.getElementById('btnModeBall');
     const btnBox = document.getElementById('btnModeBox');
@@ -370,8 +344,7 @@ function setActionMode(mode) {
 
 function updateManualAxisLabel() {
     const type = document.getElementById('manualType').value;
-    const label = document.getElementById('manualAxisLabel');
-    label.innerText = (type === 'box') ? 'X:' : 'Y:';
+    document.getElementById('manualAxisLabel').innerText = (type === 'box') ? 'X:' : 'Y:';
 }
 
 function updateLaunchButtonsState(enabled) {
@@ -390,38 +363,19 @@ function launchFromManualUI() {
 
 function fireBallAtY(targetY, isLeft) {
     if (isWaitingForSettlement) return;
-
-    if (!isPlaying) {
-        isPlaying = true;
-        setBodiesMotionState(true);
-        updatePlayPauseButton();
-    }
+    if (!isPlaying) { isPlaying = true; setBodiesMotionState(true); updatePlayPauseButton(); }
 
     const launchX_px = isLeft ? -BALL_RADIUS_PX : (920 + BALL_RADIUS_PX);
-
     const ball = world.createBody({
-        type: 'dynamic',
-        position: planck.Vec2(launchX_px / PPU, targetY / PPU),
-        linearDrag: 0.0,
-        angularDrag: 10.0,
-        gravityScale: 1.0
+        type: 'dynamic', position: planck.Vec2(launchX_px / PPU, targetY / PPU), angularDrag: 10.0, gravityScale: 1.0
     });
 
     const projMask = CATEGORY_STATIC | CATEGORY_DYNAMIC | CATEGORY_HINA | CATEGORY_PURPLE | CATEGORY_PROJECTILE;
-    ball.createFixture(planck.Circle(BALL_RADIUS_M), { 
-        density: 6.58,
-        friction: 0.2, 
-        restitution: 0.5,
-        filterCategoryBits: CATEGORY_PROJECTILE,
-        filterMaskBits: projMask
-    });
-
-    const velocityX = isLeft ? 20.0 : -20.0;
-    ball.setLinearVelocity(planck.Vec2(velocityX, -1.0));
+    ball.createFixture(planck.Circle(BALL_RADIUS_M), { density: 6.58, friction: 0.2, restitution: 0.5, filterCategoryBits: CATEGORY_PROJECTILE, filterMaskBits: projMask });
+    ball.setLinearVelocity(planck.Vec2(isLeft ? 20.0 : -20.0, -1.0));
     ball.setUserData({ id: 'projectile' });
 
     spawnedBodies.push({ body: ball, type: 'ball' });
-    
     isWaitingForSettlement = true;
     launchFrameCounter = 0;
     updateLaunchButtonsState(false);
@@ -430,33 +384,17 @@ function fireBallAtY(targetY, isLeft) {
 
 function dropBoxAtX(targetX) {
     if (isWaitingForSettlement) return;
-
-    if (!isPlaying) {
-        isPlaying = true;
-        setBodiesMotionState(true);
-        updatePlayPauseButton();
-    }
+    if (!isPlaying) { isPlaying = true; setBodiesMotionState(true); updatePlayPauseButton(); }
 
     const box = world.createBody({
-        type: 'dynamic',
-        position: planck.Vec2(targetX / PPU, (500 + BOX_HALF_PX) / PPU),
-        linearDrag: 0.0,
-        angularDrag: 10.0,
-        gravityScale: 0.8
+        type: 'dynamic', position: planck.Vec2(targetX / PPU, (500 + BOX_HALF_PX) / PPU), angularDrag: 10.0, gravityScale: 0.8
     });
 
     const projMask = CATEGORY_STATIC | CATEGORY_DYNAMIC | CATEGORY_HINA | CATEGORY_PURPLE | CATEGORY_PROJECTILE;
-    box.createFixture(planck.Box(BOX_SIZE_M / 2, BOX_SIZE_M / 2), {
-        density: 8.33,
-        friction: 0.5,
-        restitution: 0.1,
-        filterCategoryBits: CATEGORY_PROJECTILE,
-        filterMaskBits: projMask
-    });
+    box.createFixture(planck.Box(BOX_SIZE_M / 2, BOX_SIZE_M / 2), { density: 8.33, friction: 0.5, restitution: 0.1, filterCategoryBits: CATEGORY_PROJECTILE, filterMaskBits: projMask });
     box.setUserData({ id: 'projectile' });
 
     spawnedBodies.push({ body: box, type: 'box' });
-
     isWaitingForSettlement = true;
     launchFrameCounter = 0;
     updateLaunchButtonsState(false);
@@ -483,11 +421,7 @@ function resetScene() {
 }
 
 function deleteSelectedObject() {
-    if (draggedTarget === null) return;
-    if (draggedTarget === 'hina') {
-        alert("雛ちゃんは削除できません。");
-        return;
-    }
+    if (draggedTarget === null || draggedTarget === 'hina') return;
     if (typeof draggedTarget === 'number' && customObjects[draggedTarget]) {
         customObjects.splice(draggedTarget, 1);
         clearSelectionUI();
@@ -505,41 +439,18 @@ function clearSelectionUI() {
 
 function createSimEnvironment() {
     let simWorld = new planck.World(planck.Vec2(0.0, -9.81));
-
     let simHina = simWorld.createBody({
-        type: 'dynamic',
-        position: planck.Vec2(hinaData.x / PPU, hinaData.y / PPU),
-        angle: hinaData.angle,
-        linearDrag: 0.0,
-        angularDrag: 0.05,
-        gravityScale: 0.8
+        type: 'dynamic', position: planck.Vec2(hinaData.x / PPU, hinaData.y / PPU), angle: hinaData.angle, angularDrag: 0.05, gravityScale: 0.8
     });
     const hinaMask = CATEGORY_STATIC | CATEGORY_DYNAMIC | CATEGORY_PROJECTILE | CATEGORY_GREEN;
-    simHina.createFixture(planck.Box(0.3 / 2, 0.7 / 2, planck.Vec2(0, -0.02)), { 
-        density: 3.81, friction: 0.4, restitution: 0.2,
-        filterCategoryBits: CATEGORY_HINA, filterMaskBits: hinaMask
-    });
+    simHina.createFixture(planck.Box(0.3 / 2, 0.7 / 2, planck.Vec2(0, -0.02)), { density: 3.81, friction: 0.4, restitution: 0.2, filterCategoryBits: CATEGORY_HINA, filterMaskBits: hinaMask });
 
     let simObjects = customObjects.map(obj => {
         const isDynamic = (obj.type === 'dynamic' || obj.type === 'preset_tree' || obj.type === 'preset_snowman');
-        let b = simWorld.createBody({
-            type: isDynamic ? 'dynamic' : 'static',
-            position: planck.Vec2(obj.x / PPU, obj.y / PPU),
-            angle: obj.angle,
-            angularDrag: 1.0
-        });
-
-        let catBits = CATEGORY_STATIC;
-        let maskBits = 0xFFFF;
-        if (isDynamic) { catBits = CATEGORY_DYNAMIC; }
-        else if (obj.type === 'green_pass') { catBits = CATEGORY_GREEN; maskBits = CATEGORY_HINA | CATEGORY_DYNAMIC; }
-        else if (obj.type === 'purple_pass') { catBits = CATEGORY_PURPLE; maskBits = CATEGORY_PROJECTILE | CATEGORY_DYNAMIC; }
-
-        b.createFixture(planck.Box((obj.w / PPU) / 2, (obj.h / PPU) / 2), { 
-            density: isDynamic ? 2.0 : 0.0,
-            friction: 0.5, restitution: 0.2,
-            filterCategoryBits: catBits, filterMaskBits: maskBits
-        });
+        let b = simWorld.createBody({ type: isDynamic ? 'dynamic' : 'static', position: planck.Vec2(obj.x / PPU, obj.y / PPU), angle: obj.angle, angularDrag: 1.0 });
+        let catBits = isDynamic ? CATEGORY_DYNAMIC : (obj.type === 'green_pass' ? CATEGORY_GREEN : (obj.type === 'purple_pass' ? CATEGORY_PURPLE : CATEGORY_STATIC));
+        let maskBits = (obj.type === 'green_pass') ? (CATEGORY_HINA | CATEGORY_DYNAMIC) : ((obj.type === 'purple_pass') ? (CATEGORY_PROJECTILE | CATEGORY_DYNAMIC) : 0xFFFF);
+        b.createFixture(planck.Box((obj.w / PPU) / 2, (obj.h / PPU) / 2), { density: isDynamic ? 2.0 : 0.0, friction: 0.5, restitution: 0.2, filterCategoryBits: catBits, filterMaskBits: maskBits });
         return { body: b, initX: obj.x / PPU, initY: obj.y / PPU, initAngle: obj.angle };
     });
 
@@ -565,11 +476,7 @@ function resetSimEnvironment(env) {
 function isWorldSettled(w) {
     for (let b = w.getBodyList(); b; b = b.getNext()) {
         if (b.getType() === 'dynamic') {
-            let v = b.getLinearVelocity();
-            let ang = b.getAngularVelocity();
-            if (v.lengthSquared() > 0.002 || Math.abs(ang) > 0.02) {
-                return false;
-            }
+            if (b.getLinearVelocity().lengthSquared() > 0.002 || Math.abs(b.getAngularVelocity()) > 0.02) return false;
         }
     }
     return true;
@@ -578,52 +485,51 @@ function isWorldSettled(w) {
 function runAutoSearch() {
     const target = document.getElementById('searchTarget').value;
     rawSearchResults = { ball_left: [], ball_right: [], box: [] };
-
     const simEnv = createSimEnvironment();
 
     if (target === 'all' || target === 'ball_both' || target === 'ball_left') {
-        let foundOneKill = false;
+        let found = false;
         for (let y = 0; y <= 500; y += 4) {
-            const res = simulateKillTurnsFast(simEnv, 'ball', { isLeft: true, y: y });
-            if (res.turns === 1) foundOneKill = true;
+            const res = simulateKillTurnsFast(simEnv, 'ball', { isLeft: true, y });
+            if (res.turns === 1) found = true;
             if (res.turns > 0) rawSearchResults.ball_left.push({ val: y, turns: res.turns, steps: res.steps });
         }
-        if (!foundOneKill) {
+        if (!found) {
             rawSearchResults.ball_left = [];
             for (let y = 0; y <= 500; y += 1) {
-                const res = simulateKillTurnsFast(simEnv, 'ball', { isLeft: true, y: y });
+                const res = simulateKillTurnsFast(simEnv, 'ball', { isLeft: true, y });
                 if (res.turns > 0) rawSearchResults.ball_left.push({ val: y, turns: res.turns, steps: res.steps });
             }
         }
     }
 
     if (target === 'all' || target === 'ball_both' || target === 'ball_right') {
-        let foundOneKill = false;
+        let found = false;
         for (let y = 0; y <= 500; y += 4) {
-            const res = simulateKillTurnsFast(simEnv, 'ball', { isLeft: false, y: y });
-            if (res.turns === 1) foundOneKill = true;
+            const res = simulateKillTurnsFast(simEnv, 'ball', { isLeft: false, y });
+            if (res.turns === 1) found = true;
             if (res.turns > 0) rawSearchResults.ball_right.push({ val: y, turns: res.turns, steps: res.steps });
         }
-        if (!foundOneKill) {
+        if (!found) {
             rawSearchResults.ball_right = [];
             for (let y = 0; y <= 500; y += 1) {
-                const res = simulateKillTurnsFast(simEnv, 'ball', { isLeft: false, y: y });
+                const res = simulateKillTurnsFast(simEnv, 'ball', { isLeft: false, y });
                 if (res.turns > 0) rawSearchResults.ball_right.push({ val: y, turns: res.turns, steps: res.steps });
             }
         }
     }
 
     if (target === 'all' || target === 'box') {
-        let foundOneKill = false;
+        let found = false;
         for (let x = 0; x <= 920; x += 8) {
-            const res = simulateKillTurnsFast(simEnv, 'box', { x: x });
-            if (res.turns === 1) foundOneKill = true;
+            const res = simulateKillTurnsFast(simEnv, 'box', { x });
+            if (res.turns === 1) found = true;
             if (res.turns > 0) rawSearchResults.box.push({ val: x, turns: res.turns, steps: res.steps });
         }
-        if (!foundOneKill) {
+        if (!found) {
             rawSearchResults.box = [];
             for (let x = 0; x <= 920; x += 2) {
-                const res = simulateKillTurnsFast(simEnv, 'box', { x: x });
+                const res = simulateKillTurnsFast(simEnv, 'box', { x });
                 if (res.turns > 0) rawSearchResults.box.push({ val: x, turns: res.turns, steps: res.steps });
             }
         }
@@ -647,29 +553,13 @@ function simulateKillTurnsFast(env, type, params) {
 
         if (type === 'ball') {
             const launchX = params.isLeft ? -BALL_RADIUS_PX : (920 + BALL_RADIUS_PX);
-            pBody = simWorld.createBody({
-                type: 'dynamic',
-                position: planck.Vec2(launchX / PPU, params.y / PPU),
-                angularDrag: 10.0,
-                gravityScale: 1.0
-            });
-            pBody.createFixture(planck.Circle(BALL_RADIUS_M), { 
-                density: 6.58, friction: 0.2, restitution: 0.5,
-                filterCategoryBits: CATEGORY_PROJECTILE, filterMaskBits: projMask 
-            });
+            pBody = simWorld.createBody({ type: 'dynamic', position: planck.Vec2(launchX / PPU, params.y / PPU), angularDrag: 10.0, gravityScale: 1.0 });
+            pBody.createFixture(planck.Circle(BALL_RADIUS_M), { density: 6.58, friction: 0.2, restitution: 0.5, filterCategoryBits: CATEGORY_PROJECTILE, filterMaskBits: projMask });
             pBody.setLinearVelocity(planck.Vec2(params.isLeft ? 20.0 : -20.0, -1.0));
             actionName = (params.isLeft ? "左" : "右") + "Y=" + params.y;
         } else if (type === 'box') {
-            pBody = simWorld.createBody({
-                type: 'dynamic',
-                position: planck.Vec2(params.x / PPU, (500 + BOX_HALF_PX) / PPU),
-                angularDrag: 10.0,
-                gravityScale: 0.8
-            });
-            pBody.createFixture(planck.Box(BOX_SIZE_M / 2, BOX_SIZE_M / 2), { 
-                density: 8.33, friction: 0.5, restitution: 0.1,
-                filterCategoryBits: CATEGORY_PROJECTILE, filterMaskBits: projMask
-            });
+            pBody = simWorld.createBody({ type: 'dynamic', position: planck.Vec2(params.x / PPU, (500 + BOX_HALF_PX) / PPU), angularDrag: 10.0, gravityScale: 0.8 });
+            pBody.createFixture(planck.Box(BOX_SIZE_M / 2, BOX_SIZE_M / 2), { density: 8.33, friction: 0.5, restitution: 0.1, filterCategoryBits: CATEGORY_PROJECTILE, filterMaskBits: projMask });
             actionName = "上空X=" + params.x;
         }
 
@@ -681,25 +571,14 @@ function simulateKillTurnsFast(env, type, params) {
 
         for (let f = 0; f < 1800; f++) {
             simWorld.step(1 / 60);
-
             let hPos = simHina.getPosition();
-            if (planck.Vec2.distance(startHinaPos, hPos) > 0.05) {
-                hinaMoved = true;
-            }
 
-            if (hPos.y < 0) {
-                killTurn = turn;
-                break;
-            }
-
-            // 高速化のため、チェックは5フレームごとに行う
-            if (f > 180 && f % 5 === 0 && isWorldSettled(simWorld)) {
-                break;
-            }
+            if (planck.Vec2.distance(startHinaPos, hPos) > 0.05) hinaMoved = true;
+            if (hPos.y < 0) { killTurn = turn; break; }
+            if (f > 180 && f % 5 === 0 && isWorldSettled(simWorld)) break;
         }
 
-        if (killTurn > 0) break;
-        if (!hinaMoved) break;
+        if (killTurn > 0 || !hinaMoved) break;
     }
 
     activeProjectiles.forEach(b => simWorld.destroyBody(b));
@@ -708,28 +587,19 @@ function simulateKillTurnsFast(env, type, params) {
 
 function getGroupedRanges(items, step) {
     if (items.length === 0) return [];
-    
     let byTurns = {};
-    items.forEach(item => {
-        if (!byTurns[item.turns]) byTurns[item.turns] = [];
-        byTurns[item.turns].push(item);
-    });
+    items.forEach(item => { (byTurns[item.turns] = byTurns[item.turns] || []).push(item); });
 
     let results = [];
     Object.keys(byTurns).forEach(t => {
         let arr = byTurns[t];
-        let start = arr[0].val;
-        let prev = arr[0].val;
-        let lastSteps = arr[0].steps;
+        let start = arr[0].val, prev = arr[0].val, lastSteps = arr[0].steps;
 
         for (let i = 1; i < arr.length; i++) {
-            if (arr[i].val === prev + step) {
-                prev = arr[i].val;
-            } else {
+            if (arr[i].val === prev + step) prev = arr[i].val;
+            else {
                 results.push({ start, end: prev, turns: parseInt(t), steps: lastSteps });
-                start = arr[i].val;
-                prev = arr[i].val;
-                lastSteps = arr[i].steps;
+                start = arr[i].val; prev = arr[i].val; lastSteps = arr[i].steps;
             }
         }
         results.push({ start, end: prev, turns: parseInt(t), steps: lastSteps });
@@ -743,19 +613,8 @@ function displaySearchResults(raw) {
     let html = '';
 
     const formatLine = (r, axis) => {
-        let turnStr = "";
-        if (r.turns === 1) {
-            turnStr = " ★ワンキル";
-        } else {
-            let recipeStr = r.steps.map((s, idx) => `${idx + 1}:${s}`).join(' → ');
-            turnStr = ` (${r.turns}手)<br>&nbsp;&nbsp;↳ 手順: ${recipeStr}`;
-        }
-
-        if (r.start === r.end) {
-            return `${axis} ${r.start}px${turnStr}`;
-        } else {
-            return `${axis} ${r.start}〜${r.end}px (範囲:${r.end - r.start + (axis==='X'?2:1)}px)${turnStr}`;
-        }
+        let turnStr = (r.turns === 1) ? " ★ワンキル" : ` (${r.turns}手)<br>&nbsp;&nbsp;↳ ${r.steps.map((s, idx) => `${idx + 1}:${s}`).join(' → ')}`;
+        return (r.start === r.end) ? `${axis} ${r.start}px${turnStr}` : `${axis} ${r.start}〜${r.end}px (範囲:${r.end - r.start + (axis==='X'?2:1)}px)${turnStr}`;
     };
 
     const leftStep = (raw.ball_left.length > 0 && raw.ball_left[0].val % 4 === 0) ? 4 : 1;
@@ -780,14 +639,8 @@ function clearMarkers() {
 
 function onObjTypeChange() {
     const type = document.getElementById('objType').value;
-    const wInput = document.getElementById('newW');
-    const hInput = document.getElementById('newH');
-
-    if (type === 'preset_tree') {
-        wInput.value = 45; hInput.value = 90;
-    } else if (type === 'preset_snowman') {
-        wInput.value = 50; hInput.value = 75;
-    }
+    document.getElementById('newW').value = (type === 'preset_tree') ? 45 : ((type === 'preset_snowman') ? 50 : 180);
+    document.getElementById('newH').value = (type === 'preset_tree') ? 90 : ((type === 'preset_snowman') ? 75 : 20);
 }
 
 function addObjectFromUI() {
@@ -804,33 +657,27 @@ function addObjectFromUI() {
 
 function updateSelectedAngle() {
     if (draggedTarget === null) return;
-    const deg = parseFloat(document.getElementById('selectedAngle').value) || 0;
-    const rad = degToRad(deg);
+    const rad = degToRad(parseFloat(document.getElementById('selectedAngle').value) || 0);
 
     if (draggedTarget === 'hina') hinaData.angle = rad;
     else if (typeof draggedTarget === 'number' && customObjects[draggedTarget]) customObjects[draggedTarget].angle = rad;
-    
     buildPhysicsWorld(false);
 }
 
 function getPointerPos(e) {
     const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
     let clientX = e.touches ? e.touches[0].clientX : e.clientX;
     let clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    return { x: clientX - rect.left, y: canvas.height - (clientY - rect.top) };
+    return { x: (clientX - rect.left) * scaleX, y: canvas.height - ((clientY - rect.top) * scaleY) };
 }
 
 function isPointInsideRotatedBox(px, py, obj) {
-    const dx = px - obj.x;
-    const dy = py - obj.y;
-
+    const dx = px - obj.x, dy = py - obj.y;
     const rad = obj.angle || 0;
-    const cos = Math.cos(-rad);
-    const sin = Math.sin(-rad);
-
-    const localX = dx * cos - dy * sin;
-    const localY = dx * sin + dy * cos;
-
+    const cos = Math.cos(-rad), sin = Math.sin(-rad);
+    const localX = dx * cos - dy * sin, localY = dx * sin + dy * cos;
     return (Math.abs(localX) <= obj.w / 2 && Math.abs(localY) <= obj.h / 2);
 }
 
@@ -839,25 +686,18 @@ function handleStart(e) {
     const mouse = getPointerPos(e);
 
     if (currentActionMode === 'ball') {
-        if (!isWaitingForSettlement) {
-            const isLeft = (mouse.x < canvas.width / 2);
-            fireBallAtY(Math.round(mouse.y), isLeft);
-        }
+        if (!isWaitingForSettlement) fireBallAtY(Math.round(mouse.y), mouse.x < canvas.width / 2);
         return;
     }
-
     if (currentActionMode === 'box') {
-        if (!isWaitingForSettlement) {
-            dropBoxAtX(Math.round(mouse.x));
-        }
+        if (!isWaitingForSettlement) dropBoxAtX(Math.round(mouse.x));
         return;
     }
 
     if (isPlaying) return;
 
     if (isPointInsideRotatedBox(mouse.x, mouse.y, hinaData)) {
-        isDragging = true;
-        draggedTarget = 'hina';
+        isDragging = true; draggedTarget = 'hina';
         updateUISelection("雛ちゃん", hinaData.x, hinaData.y, hinaData.angle);
         return;
     }
@@ -865,17 +705,8 @@ function handleStart(e) {
     for (let i = customObjects.length - 1; i >= 0; i--) {
         const obj = customObjects[i];
         if (isPointInsideRotatedBox(mouse.x, mouse.y, obj)) {
-            isDragging = true;
-            draggedTarget = i;
-            let label = 'ブロック[' + i + ']';
-            if (obj.type === 'static') label = '固定ブロック[' + i + ']';
-            if (obj.type === 'dynamic') label = '動くブロック[' + i + ']';
-            if (obj.type === 'green_pass') label = '投擲物透過(緑)[' + i + ']';
-            if (obj.type === 'purple_pass') label = '雛透過(紫)[' + i + ']';
-            if (obj.type === 'preset_tree') label = '🌲 木[' + i + ']';
-            if (obj.type === 'preset_snowman') label = '☃️ 雪だるま[' + i + ']';
-
-            updateUISelection(label, obj.x, obj.y, obj.angle);
+            isDragging = true; draggedTarget = i;
+            updateUISelection(`ブロック[${i}]`, obj.x, obj.y, obj.angle);
             return;
         }
     }
@@ -887,22 +718,11 @@ function handleMove(e) {
 
     const mouse = getPointerPos(e);
     if (draggedTarget === 'hina') {
-        hinaData.x = Math.round(mouse.x);
-        hinaData.y = Math.round(mouse.y);
+        hinaData.x = Math.round(mouse.x); hinaData.y = Math.round(mouse.y);
         updateUISelection("雛ちゃん", hinaData.x, hinaData.y, hinaData.angle);
     } else if (typeof draggedTarget === 'number') {
-        customObjects[draggedTarget].x = Math.round(mouse.x);
-        customObjects[draggedTarget].y = Math.round(mouse.y);
-        const obj = customObjects[draggedTarget];
-        let label = 'ブロック[' + draggedTarget + ']';
-        if (obj.type === 'static') label = '固定ブロック[' + draggedTarget + ']';
-        if (obj.type === 'dynamic') label = '動くブロック[' + draggedTarget + ']';
-        if (obj.type === 'green_pass') label = '投擲物透過(緑)[' + draggedTarget + ']';
-        if (obj.type === 'purple_pass') label = '雛透過(紫)[' + draggedTarget + ']';
-        if (obj.type === 'preset_tree') label = '🌲 木[' + draggedTarget + ']';
-        if (obj.type === 'preset_snowman') label = '☃️ 雪だるま[' + draggedTarget + ']';
-
-        updateUISelection(label, obj.x, obj.y, obj.angle);
+        customObjects[draggedTarget].x = Math.round(mouse.x); customObjects[draggedTarget].y = Math.round(mouse.y);
+        updateUISelection(`ブロック[${draggedTarget}]`, customObjects[draggedTarget].x, customObjects[draggedTarget].y, customObjects[draggedTarget].angle);
     }
     buildPhysicsWorld(false);
 }
@@ -942,41 +762,12 @@ function draw() {
         } else if (uData && uData.id === 'custom') {
             const obj = customObjects[uData.index];
             if (obj) {
-                if (obj.type === 'static') {
-                    ctx.fillStyle = '#777777';
-                    ctx.fillRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
-                } else if (obj.type === 'dynamic') {
-                    ctx.fillStyle = '#44aa44';
-                    ctx.fillRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
-                } else if (obj.type === 'green_pass') {
-                    ctx.fillStyle = 'rgba(0, 255, 100, 0.4)';
-                    ctx.strokeStyle = '#00ff66';
-                    ctx.lineWidth = 2;
-                    ctx.strokeRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
-                    ctx.fillRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
-                } else if (obj.type === 'purple_pass') {
-                    ctx.fillStyle = 'rgba(180, 0, 255, 0.4)';
-                    ctx.strokeStyle = '#cc00ff';
-                    ctx.lineWidth = 2;
-                    ctx.strokeRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
-                    ctx.fillRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
-                } else if (obj.type === 'preset_tree') {
-                    ctx.fillStyle = '#228b22';
-                    ctx.beginPath();
-                    ctx.moveTo(0, -obj.h / 2);
-                    ctx.lineTo(-obj.w / 2, obj.h / 2);
-                    ctx.lineTo(obj.w / 2, obj.h / 2);
-                    ctx.closePath();
-                    ctx.fill();
-                    ctx.fillStyle = '#8b4513';
-                    ctx.fillRect(-obj.w / 6, obj.h / 4, obj.w / 3, obj.h / 4);
-                } else if (obj.type === 'preset_snowman') {
-                    ctx.fillStyle = '#ffffff';
-                    ctx.beginPath();
-                    ctx.arc(0, obj.h / 6, obj.w / 2.5, 0, Math.PI * 2);
-                    ctx.arc(0, -obj.h / 4, obj.w / 3.5, 0, Math.PI * 2);
-                    ctx.fill();
-                }
+                if (obj.type === 'static') { ctx.fillStyle = '#777777'; ctx.fillRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h); }
+                else if (obj.type === 'dynamic') { ctx.fillStyle = '#44aa44'; ctx.fillRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h); }
+                else if (obj.type === 'green_pass') { ctx.fillStyle = 'rgba(0, 255, 100, 0.4)'; ctx.strokeStyle = '#00ff66'; ctx.lineWidth = 2; ctx.strokeRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h); ctx.fillRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h); }
+                else if (obj.type === 'purple_pass') { ctx.fillStyle = 'rgba(180, 0, 255, 0.4)'; ctx.strokeStyle = '#cc00ff'; ctx.lineWidth = 2; ctx.strokeRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h); ctx.fillRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h); }
+                else if (obj.type === 'preset_tree') { ctx.fillStyle = '#228b22'; ctx.beginPath(); ctx.moveTo(0, -obj.h / 2); ctx.lineTo(-obj.w / 2, obj.h / 2); ctx.lineTo(obj.w / 2, obj.h / 2); ctx.closePath(); ctx.fill(); ctx.fillStyle = '#8b4513'; ctx.fillRect(-obj.w / 6, obj.h / 4, obj.w / 3, obj.h / 4); }
+                else if (obj.type === 'preset_snowman') { ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(0, obj.h / 6, obj.w / 2.5, 0, Math.PI * 2); ctx.arc(0, -obj.h / 4, obj.w / 3.5, 0, Math.PI * 2); ctx.fill(); }
             }
         }
         ctx.restore();
@@ -986,31 +777,19 @@ function draw() {
         const pos = item.body.getPosition();
         ctx.save();
         ctx.translate(pos.x * PPU, canvas.height - (pos.y * PPU));
-        
-        if (item.type === 'ball') {
-            ctx.beginPath();
-            ctx.arc(0, 0, BALL_RADIUS_PX, 0, 2 * Math.PI);
-            ctx.fillStyle = '#44ffff';
-            ctx.fill();
-        } else if (item.type === 'box') {
-            ctx.fillStyle = '#e67e22';
-            ctx.fillRect(-BOX_HALF_PX, -BOX_HALF_PX, BOX_HALF_PX * 2, BOX_HALF_PX * 2);
-        }
+        if (item.type === 'ball') { ctx.beginPath(); ctx.arc(0, 0, BALL_RADIUS_PX, 0, 2 * Math.PI); ctx.fillStyle = '#44ffff'; ctx.fill(); }
+        else if (item.type === 'box') { ctx.fillStyle = '#e67e22'; ctx.fillRect(-BOX_HALF_PX, -BOX_HALF_PX, BOX_HALF_PX * 2, BOX_HALF_PX * 2); }
         ctx.restore();
     });
 
     rawSearchResults.ball_left.forEach(item => {
         ctx.fillStyle = (item.turns === 1) ? '#ffff00' : '#aa00ff';
-        ctx.beginPath();
-        ctx.arc(0, canvas.height - item.val, 5, 0, 2 * Math.PI);
-        ctx.fill();
+        ctx.beginPath(); ctx.arc(0, canvas.height - item.val, 5, 0, 2 * Math.PI); ctx.fill();
     });
 
     rawSearchResults.ball_right.forEach(item => {
         ctx.fillStyle = (item.turns === 1) ? '#ffff00' : '#aa00ff';
-        ctx.beginPath();
-        ctx.arc(920, canvas.height - item.val, 5, 0, 2 * Math.PI);
-        ctx.fill();
+        ctx.beginPath(); ctx.arc(920, canvas.height - item.val, 5, 0, 2 * Math.PI); ctx.fill();
     });
 
     const boxStep = (rawSearchResults.box.length > 0 && rawSearchResults.box[0].val % 8 === 0) ? 8 : 2;
@@ -1018,10 +797,7 @@ function draw() {
     ctx.lineWidth = 6;
     boxRanges.forEach(r => {
         ctx.strokeStyle = (r.turns === 1) ? '#ffff00' : '#aa00ff';
-        ctx.beginPath();
-        ctx.moveTo(r.start, canvas.height - 500);
-        ctx.lineTo(r.end + 8, canvas.height - 500);
-        ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(r.start, canvas.height - 500); ctx.lineTo(r.end + 8, canvas.height - 500); ctx.stroke();
     });
 }
 
@@ -1029,19 +805,12 @@ function animate() {
     if (isPlaying) {
         world.step(1 / 60);
 
-        // 雛ちゃん落下判定
-        if (hinaBodyRef) {
-            const hPos = hinaBodyRef.getPosition();
-            if (hPos.y < 0) {
-                resetPositions(); // 落下時はTurn1に戻して位置リセット
-            }
+        if (hinaBodyRef && hinaBodyRef.getPosition().y < 0) {
+            resetPositions();
         }
 
-        // 投擲物の静止・タイムアウト監視（手動発射時）
         if (isWaitingForSettlement) {
             launchFrameCounter++;
-
-            // 180フレーム(3秒)経過以降から静止判定を開始し、最長1800フレーム(30秒)で強制停止
             const isSettled = (launchFrameCounter > 180 && launchFrameCounter % 5 === 0 && isWorldSettled(world));
             const isTimeout = (launchFrameCounter >= 1800);
 
