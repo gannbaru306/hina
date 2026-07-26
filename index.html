@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>雛ブレ2nd 物理予測エディタ</title>
+    <title>雛ブレ2nd 物理予測エディタ (速度保持修正版)</title>
     <script src="https://cdn.jsdelivr.net/npm/planck-js@0.3.27/dist/planck.min.js"></script>
     <style>
         * { box-sizing: border-box; }
@@ -57,7 +57,7 @@
 </head>
 <body>
 
-    <h1>雛ちゃんブレイカー2nd 物理予測エディタ (本家数値適用)</h1>
+    <h1>雛ちゃんブレイカー2nd 物理予測エディタ (速度保持修正版)</h1>
     
     <div class="main-container">
         <div class="canvas-area">
@@ -175,7 +175,6 @@ const PPU = 75;
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-// 衝突判定ビットフラグ
 const CATEGORY_STATIC     = 0x0001; 
 const CATEGORY_HINA       = 0x0002; 
 const CATEGORY_PROJECTILE = 0x0004; 
@@ -183,10 +182,9 @@ const CATEGORY_DYNAMIC    = 0x0008;
 const CATEGORY_GREEN      = 0x0010; 
 const CATEGORY_PURPLE     = 0x0020; 
 
-// サイズ情報（メートル / ピクセル）
-const BALL_RADIUS_M = 0.22;               // 半径 0.22m (直径 0.44m = 33px)
+const BALL_RADIUS_M = 0.22;
 const BALL_RADIUS_PX = BALL_RADIUS_M * PPU;
-const BOX_SIZE_M = 0.6;                   // 0.6m x 0.6m (45px x 45px)
+const BOX_SIZE_M = 0.6;
 const BOX_HALF_PX = (BOX_SIZE_M * PPU) / 2;
 
 let world;
@@ -215,21 +213,20 @@ function initScene() {
 function buildPhysicsWorld(isFullSimulation) {
     world = new planck.World(planck.Vec2(0.0, -9.81));
 
-    // --- 🎎 雛ちゃん構築 ---
+    // 🎎 雛ちゃん
     const hinaBodyType = isFullSimulation ? 'dynamic' : 'static';
     hinaBodyRef = world.createBody({
         type: hinaBodyType,
         position: planck.Vec2(hinaData.x / PPU, hinaData.y / PPU),
         angle: hinaData.angle,
-        linearDrag: 0.0,      // m_LinearDrag: 0
-        angularDrag: 0.05,    // m_AngularDrag: 0.05
-        gravityScale: 0.8     // m_GravityScale: 0.8 (重力80%)
+        linearDrag: 0.0,
+        angularDrag: 0.05,
+        gravityScale: 0.8
     });
     
     const hinaMask = CATEGORY_STATIC | CATEGORY_DYNAMIC | CATEGORY_PROJECTILE | CATEGORY_GREEN;
-    // Box 0.3 x 0.7 (offset: y=-0.02)
     hinaBodyRef.createFixture(planck.Box(0.3 / 2, 0.7 / 2, planck.Vec2(0, -0.02)), { 
-        density: 3.81,        // Mass 0.8kg になる密度
+        density: 3.81,
         friction: 0.4, 
         restitution: 0.2,
         filterCategoryBits: CATEGORY_HINA,
@@ -237,7 +234,7 @@ function buildPhysicsWorld(isFullSimulation) {
     });
     hinaBodyRef.setUserData({ id: 'hina' });
 
-    // --- 各種ブロック構築 ---
+    // 各種ブロック
     customObjects.forEach((obj, index) => {
         const isDynamic = (obj.type === 'dynamic' || obj.type === 'preset_tree' || obj.type === 'preset_snowman');
         const bType = (isFullSimulation && isDynamic) ? 'dynamic' : 'static';
@@ -277,17 +274,38 @@ function buildPhysicsWorld(isFullSimulation) {
     });
 }
 
+// ★★★ 修正ポイント: 全オブジェクトの速度退避/再設定処理 ★★★
 function setBodiesMotionState(enable) {
     if (!world) return;
     for (let b = world.getBodyList(); b; b = b.getNext()) {
-        const uData = b.getUserData();
-        if (uData && uData.id === 'hina') {
-            b.setType(enable ? 'dynamic' : 'static');
-        } else if (uData && uData.id === 'custom') {
+        const uData = b.getUserData() || {};
+        
+        let isTarget = false;
+        if (uData.id === 'hina') {
+            isTarget = true;
+        } else if (uData.id === 'custom') {
             const obj = customObjects[uData.index];
-            const isDynamic = (obj.type === 'dynamic' || obj.type === 'preset_tree' || obj.type === 'preset_snowman');
-            if (isDynamic) {
-                b.setType(enable ? 'dynamic' : 'static');
+            if (obj.type === 'dynamic' || obj.type === 'preset_tree' || obj.type === 'preset_snowman') {
+                isTarget = true;
+            }
+        } else if (uData.id === 'projectile') {
+            isTarget = true; // ボールやボックスなどの投擲物も対象
+        }
+
+        if (isTarget) {
+            if (enable) {
+                // 停止 ➔ 動作再開
+                b.setType('dynamic');
+                if (uData.savedVel) {
+                    b.setLinearVelocity(uData.savedVel);
+                    b.setAngularVelocity(uData.savedAngVel);
+                }
+            } else {
+                // 動作 ➔ 停止 (現在の速度を保持したままstatic化)
+                uData.savedVel = b.getLinearVelocity().clone();
+                uData.savedAngVel = b.getAngularVelocity();
+                b.setUserData(uData);
+                b.setType('static');
             }
         }
     }
@@ -359,18 +377,17 @@ function fireBallAtY(targetY, isLeft) {
 
     const launchX_px = isLeft ? -BALL_RADIUS_PX : (920 + BALL_RADIUS_PX);
 
-    // --- 🔵 ボール構築 ---
     const ball = world.createBody({
         type: 'dynamic',
         position: planck.Vec2(launchX_px / PPU, targetY / PPU),
-        linearDrag: 0.0,    // m_LinearDrag: 0
-        angularDrag: 10.0,  // m_AngularDrag: 10
-        gravityScale: 1.0   // m_GravityScale: 1.0
+        linearDrag: 0.0,
+        angularDrag: 10.0,
+        gravityScale: 1.0
     });
 
     const projMask = CATEGORY_STATIC | CATEGORY_DYNAMIC | CATEGORY_HINA | CATEGORY_PURPLE;
     ball.createFixture(planck.Circle(BALL_RADIUS_M), { 
-        density: 6.58,      // Mass 1.0kg になる密度
+        density: 6.58,
         friction: 0.2, 
         restitution: 0.5,
         filterCategoryBits: CATEGORY_PROJECTILE,
@@ -379,8 +396,9 @@ function fireBallAtY(targetY, isLeft) {
 
     const velocityX = isLeft ? 20.0 : -20.0;
     ball.setLinearVelocity(planck.Vec2(velocityX, -1.0));
-    spawnedBodies.push({ body: ball, type: 'ball' });
+    ball.setUserData({ id: 'projectile' }); // ID追加
 
+    spawnedBodies.push({ body: ball, type: 'ball' });
     setActionMode('drag');
 }
 
@@ -390,24 +408,24 @@ function dropBoxAtX(targetX) {
         setBodiesMotionState(true);
         updatePlayPauseButton();
     }
-    
-    // --- 🟧 ボックス構築 ---
+
     const box = world.createBody({
         type: 'dynamic',
         position: planck.Vec2(targetX / PPU, (500 + BOX_HALF_PX) / PPU),
-        linearDrag: 0.0,    // m_LinearDrag: 0
-        angularDrag: 10.0,  // m_AngularDrag: 10
-        gravityScale: 0.8   // m_GravityScale: 0.8 (重力80%)
+        linearDrag: 0.0,
+        angularDrag: 10.0,
+        gravityScale: 0.8
     });
 
     const projMask = CATEGORY_STATIC | CATEGORY_DYNAMIC | CATEGORY_HINA | CATEGORY_PURPLE;
     box.createFixture(planck.Box(BOX_SIZE_M / 2, BOX_SIZE_M / 2), {
-        density: 8.33,      // Mass 3.0kg になる密度
+        density: 8.33,
         friction: 0.5,
         restitution: 0.1,
         filterCategoryBits: CATEGORY_PROJECTILE,
         filterMaskBits: projMask
     });
+    box.setUserData({ id: 'projectile' }); // ID追加
 
     spawnedBodies.push({ body: box, type: 'box' });
     setActionMode('drag');
@@ -432,9 +450,6 @@ function resetScene() {
     initScene();
 }
 
-// -------------------------------------------------------------
-// ⚡ 本家数値完全対応 シミュレーション環境構築 & リセット
-// -------------------------------------------------------------
 function createSimEnvironment() {
     let simWorld = new planck.World(planck.Vec2(0.0, -9.81));
 
