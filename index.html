@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>雛ブレ2nd 物理予測エディタ (速度保持修正版)</title>
+    <title>雛ブレ物理予測エディタ</title>
     <script src="https://cdn.jsdelivr.net/npm/planck-js@0.3.27/dist/planck.min.js"></script>
     <style>
         * { box-sizing: border-box; }
@@ -51,13 +51,15 @@
         button.reset-marker { background: #886600; border-color: #bb9900; margin-top: 4px; }
         .btn-reset-pos { background: #d35400; border-color: #e67e22; }
         .btn-reset-all { background: #a30000; border-color: #d60000; }
+        button.btn-delete { background: #c0392b; border-color: #e74c3c; margin-top: 6px; }
+        button.btn-delete:hover { background: #e74c3c; }
         
         .result-box { margin-top: 4px; font-size: 11px; color: #00ffcc; height: 95px; overflow-y: auto; background: #181818; padding: 4px; border-radius: 4px; border: 1px solid #333; line-height: 1.3; }
     </style>
 </head>
 <body>
 
-    <h1>雛ちゃんブレイカー2nd 物理予測エディタ (速度保持修正版)</h1>
+    <h1>雛ちゃんブレイカー2nd 物理予測エディタ</h1>
     
     <div class="main-container">
         <div class="canvas-area">
@@ -166,6 +168,7 @@
                     <label>角度 (deg):</label>
                     <input type="number" id="selectedAngle" value="0" style="width:60px;" oninput="updateSelectedAngle()">
                 </div>
+                <button class="btn-delete" onclick="deleteSelectedObject()">選択オブジェクトを削除</button>
             </div>
         </div>
     </div>
@@ -188,7 +191,7 @@ const BOX_SIZE_M = 0.6;
 const BOX_HALF_PX = (BOX_SIZE_M * PPU) / 2;
 
 let world;
-let hinaData = { x: 460, y: 200, angle: 0 };
+let hinaData = { x: 460, y: 200, angle: 0, w: 22.5, h: 52.5 };
 let customObjects = [];
 let isPlaying = false; 
 let spawnedBodies = [];
@@ -274,7 +277,6 @@ function buildPhysicsWorld(isFullSimulation) {
     });
 }
 
-// ★★★ 修正ポイント: 全オブジェクトの速度退避/再設定処理 ★★★
 function setBodiesMotionState(enable) {
     if (!world) return;
     for (let b = world.getBodyList(); b; b = b.getNext()) {
@@ -285,23 +287,21 @@ function setBodiesMotionState(enable) {
             isTarget = true;
         } else if (uData.id === 'custom') {
             const obj = customObjects[uData.index];
-            if (obj.type === 'dynamic' || obj.type === 'preset_tree' || obj.type === 'preset_snowman') {
+            if (obj && (obj.type === 'dynamic' || obj.type === 'preset_tree' || obj.type === 'preset_snowman')) {
                 isTarget = true;
             }
         } else if (uData.id === 'projectile') {
-            isTarget = true; // ボールやボックスなどの投擲物も対象
+            isTarget = true;
         }
 
         if (isTarget) {
             if (enable) {
-                // 停止 ➔ 動作再開
                 b.setType('dynamic');
                 if (uData.savedVel) {
                     b.setLinearVelocity(uData.savedVel);
                     b.setAngularVelocity(uData.savedAngVel);
                 }
             } else {
-                // 動作 ➔ 停止 (現在の速度を保持したままstatic化)
                 uData.savedVel = b.getLinearVelocity().clone();
                 uData.savedAngVel = b.getAngularVelocity();
                 b.setUserData(uData);
@@ -396,7 +396,7 @@ function fireBallAtY(targetY, isLeft) {
 
     const velocityX = isLeft ? 20.0 : -20.0;
     ball.setLinearVelocity(planck.Vec2(velocityX, -1.0));
-    ball.setUserData({ id: 'projectile' }); // ID追加
+    ball.setUserData({ id: 'projectile' });
 
     spawnedBodies.push({ body: ball, type: 'ball' });
     setActionMode('drag');
@@ -425,7 +425,7 @@ function dropBoxAtX(targetX) {
         filterCategoryBits: CATEGORY_PROJECTILE,
         filterMaskBits: projMask
     });
-    box.setUserData({ id: 'projectile' }); // ID追加
+    box.setUserData({ id: 'projectile' });
 
     spawnedBodies.push({ body: box, type: 'box' });
     setActionMode('drag');
@@ -440,14 +440,31 @@ function resetPositions() {
 
 function resetScene() {
     customObjects = [];
-    hinaData = { x: 460, y: 200, angle: 0 };
+    hinaData = { x: 460, y: 200, angle: 0, w: 22.5, h: 52.5 };
     clearMarkers();
+    clearSelectionUI();
+    initScene();
+}
+
+function deleteSelectedObject() {
+    if (draggedTarget === null) return;
+    if (draggedTarget === 'hina') {
+        alert("雛ちゃんは削除できません。");
+        return;
+    }
+    if (typeof draggedTarget === 'number' && customObjects[draggedTarget]) {
+        customObjects.splice(draggedTarget, 1);
+        clearSelectionUI();
+        initScene();
+    }
+}
+
+function clearSelectionUI() {
     draggedTarget = null;
     document.getElementById('selectedName').innerText = "なし";
     document.getElementById('selectedX').value = "";
     document.getElementById('selectedY').value = "";
     document.getElementById('selectedAngle').value = "0";
-    initScene();
 }
 
 function createSimEnvironment() {
@@ -515,24 +532,52 @@ function runAutoSearch() {
 
     const simEnv = createSimEnvironment();
 
+    // 2段階探索 (ワンキルが無い時だけ1px刻みで精密探索)
     if (target === 'all' || target === 'ball_both' || target === 'ball_left') {
+        let foundOneKill = false;
         for (let y = 0; y <= 500; y += 4) {
             const turns = simulateKillTurnsFast(simEnv, 'ball', { isLeft: true, y: y });
+            if (turns === 1) foundOneKill = true;
             if (turns > 0) rawSearchResults.ball_left.push({ val: y, turns: turns });
+        }
+        if (!foundOneKill) {
+            rawSearchResults.ball_left = [];
+            for (let y = 0; y <= 500; y += 1) {
+                const turns = simulateKillTurnsFast(simEnv, 'ball', { isLeft: true, y: y });
+                if (turns > 0) rawSearchResults.ball_left.push({ val: y, turns: turns });
+            }
         }
     }
 
     if (target === 'all' || target === 'ball_both' || target === 'ball_right') {
+        let foundOneKill = false;
         for (let y = 0; y <= 500; y += 4) {
             const turns = simulateKillTurnsFast(simEnv, 'ball', { isLeft: false, y: y });
+            if (turns === 1) foundOneKill = true;
             if (turns > 0) rawSearchResults.ball_right.push({ val: y, turns: turns });
+        }
+        if (!foundOneKill) {
+            rawSearchResults.ball_right = [];
+            for (let y = 0; y <= 500; y += 1) {
+                const turns = simulateKillTurnsFast(simEnv, 'ball', { isLeft: false, y: y });
+                if (turns > 0) rawSearchResults.ball_right.push({ val: y, turns: turns });
+            }
         }
     }
 
     if (target === 'all' || target === 'box') {
+        let foundOneKill = false;
         for (let x = 0; x <= 920; x += 8) {
             const turns = simulateKillTurnsFast(simEnv, 'box', { x: x });
+            if (turns === 1) foundOneKill = true;
             if (turns > 0) rawSearchResults.box.push({ val: x, turns: turns });
+        }
+        if (!foundOneKill) {
+            rawSearchResults.box = [];
+            for (let x = 0; x <= 920; x += 2) {
+                const turns = simulateKillTurnsFast(simEnv, 'box', { x: x });
+                if (turns > 0) rawSearchResults.box.push({ val: x, turns: turns });
+            }
         }
     }
 
@@ -631,17 +676,20 @@ function displaySearchResults(raw) {
         if (r.start === r.end) {
             return `${axis} ${r.start}px${turnStr}`;
         } else {
-            return `${axis} ${r.start}〜${r.end}px (範囲:${r.end - r.start + (axis==='X'?8:4)}px)${turnStr}`;
+            return `${axis} ${r.start}〜${r.end}px (範囲:${r.end - r.start + (axis==='X'?2:1)}px)${turnStr}`;
         }
     };
 
-    const leftRanges = getGroupedRanges(raw.ball_left, 4);
+    const leftStep = (raw.ball_left.length > 0 && raw.ball_left[0].val % 4 === 0) ? 4 : 1;
+    const leftRanges = getGroupedRanges(raw.ball_left, leftStep);
     if (leftRanges.length > 0) html += `<strong>【左ボール】</strong><br>` + leftRanges.map(r => formatLine(r, 'Y')).join('<br>') + '<br>';
 
-    const rightRanges = getGroupedRanges(raw.ball_right, 4);
+    const rightStep = (raw.ball_right.length > 0 && raw.ball_right[0].val % 4 === 0) ? 4 : 1;
+    const rightRanges = getGroupedRanges(raw.ball_right, rightStep);
     if (rightRanges.length > 0) html += `<strong>【右ボール】</strong><br>` + rightRanges.map(r => formatLine(r, 'Y')).join('<br>') + '<br>';
 
-    const boxRanges = getGroupedRanges(raw.box, 8);
+    const boxStep = (raw.box.length > 0 && raw.box[0].val % 8 === 0) ? 8 : 2;
+    const boxRanges = getGroupedRanges(raw.box, boxStep);
     if (boxRanges.length > 0) html += `<strong>【上空ボックス】</strong><br>` + boxRanges.map(r => formatLine(r, 'X')).join('<br>') + '<br>';
 
     resDiv.innerHTML = html || '5ターン以内に成功する場所が見つかりませんでした。';
@@ -694,6 +742,20 @@ function getPointerPos(e) {
     return { x: clientX - rect.left, y: canvas.height - (clientY - rect.top) };
 }
 
+function isPointInsideRotatedBox(px, py, obj) {
+    const dx = px - obj.x;
+    const dy = py - obj.y;
+
+    const rad = obj.angle || 0;
+    const cos = Math.cos(-rad);
+    const sin = Math.sin(-rad);
+
+    const localX = dx * cos - dy * sin;
+    const localY = dx * sin + dy * cos;
+
+    return (Math.abs(localX) <= obj.w / 2 && Math.abs(localY) <= obj.h / 2);
+}
+
 function handleStart(e) {
     if (e.type === 'touchstart') e.preventDefault();
     const mouse = getPointerPos(e);
@@ -711,7 +773,7 @@ function handleStart(e) {
 
     if (isPlaying) return;
 
-    if (Math.abs(mouse.x - hinaData.x) < 25 && Math.abs(mouse.y - hinaData.y) < 35) {
+    if (isPointInsideRotatedBox(mouse.x, mouse.y, hinaData)) {
         isDragging = true;
         draggedTarget = 'hina';
         updateUISelection("雛ちゃん", hinaData.x, hinaData.y, hinaData.angle);
@@ -720,7 +782,7 @@ function handleStart(e) {
 
     for (let i = customObjects.length - 1; i >= 0; i--) {
         const obj = customObjects[i];
-        if (Math.abs(mouse.x - obj.x) < obj.w/2 && Math.abs(mouse.y - obj.y) < obj.h/2) {
+        if (isPointInsideRotatedBox(mouse.x, mouse.y, obj)) {
             isDragging = true;
             draggedTarget = i;
             let label = 'ブロック[' + i + ']';
@@ -797,40 +859,42 @@ function draw() {
             ctx.fillRect(-(0.3 * PPU) / 4, (0.7 * PPU) / 4, 0.15 * PPU, 0.1 * PPU);
         } else if (uData && uData.id === 'custom') {
             const obj = customObjects[uData.index];
-            if (obj.type === 'static') {
-                ctx.fillStyle = '#777777';
-                ctx.fillRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
-            } else if (obj.type === 'dynamic') {
-                ctx.fillStyle = '#44aa44';
-                ctx.fillRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
-            } else if (obj.type === 'green_pass') {
-                ctx.fillStyle = 'rgba(0, 255, 100, 0.4)';
-                ctx.strokeStyle = '#00ff66';
-                ctx.lineWidth = 2;
-                ctx.strokeRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
-                ctx.fillRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
-            } else if (obj.type === 'purple_pass') {
-                ctx.fillStyle = 'rgba(180, 0, 255, 0.4)';
-                ctx.strokeStyle = '#cc00ff';
-                ctx.lineWidth = 2;
-                ctx.strokeRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
-                ctx.fillRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
-            } else if (obj.type === 'preset_tree') {
-                ctx.fillStyle = '#228b22';
-                ctx.beginPath();
-                ctx.moveTo(0, -obj.h / 2);
-                ctx.lineTo(-obj.w / 2, obj.h / 2);
-                ctx.lineTo(obj.w / 2, obj.h / 2);
-                ctx.closePath();
-                ctx.fill();
-                ctx.fillStyle = '#8b4513';
-                ctx.fillRect(-obj.w / 6, obj.h / 4, obj.w / 3, obj.h / 4);
-            } else if (obj.type === 'preset_snowman') {
-                ctx.fillStyle = '#ffffff';
-                ctx.beginPath();
-                ctx.arc(0, obj.h / 6, obj.w / 2.5, 0, Math.PI * 2);
-                ctx.arc(0, -obj.h / 4, obj.w / 3.5, 0, Math.PI * 2);
-                ctx.fill();
+            if (obj) {
+                if (obj.type === 'static') {
+                    ctx.fillStyle = '#777777';
+                    ctx.fillRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
+                } else if (obj.type === 'dynamic') {
+                    ctx.fillStyle = '#44aa44';
+                    ctx.fillRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
+                } else if (obj.type === 'green_pass') {
+                    ctx.fillStyle = 'rgba(0, 255, 100, 0.4)';
+                    ctx.strokeStyle = '#00ff66';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
+                    ctx.fillRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
+                } else if (obj.type === 'purple_pass') {
+                    ctx.fillStyle = 'rgba(180, 0, 255, 0.4)';
+                    ctx.strokeStyle = '#cc00ff';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
+                    ctx.fillRect(-obj.w / 2, -obj.h / 2, obj.w, obj.h);
+                } else if (obj.type === 'preset_tree') {
+                    ctx.fillStyle = '#228b22';
+                    ctx.beginPath();
+                    ctx.moveTo(0, -obj.h / 2);
+                    ctx.lineTo(-obj.w / 2, obj.h / 2);
+                    ctx.lineTo(obj.w / 2, obj.h / 2);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.fillStyle = '#8b4513';
+                    ctx.fillRect(-obj.w / 6, obj.h / 4, obj.w / 3, obj.h / 4);
+                } else if (obj.type === 'preset_snowman') {
+                    ctx.fillStyle = '#ffffff';
+                    ctx.beginPath();
+                    ctx.arc(0, obj.h / 6, obj.w / 2.5, 0, Math.PI * 2);
+                    ctx.arc(0, -obj.h / 4, obj.w / 3.5, 0, Math.PI * 2);
+                    ctx.fill();
+                }
             }
         }
         ctx.restore();
@@ -867,7 +931,8 @@ function draw() {
         ctx.fill();
     });
 
-    const boxRanges = getGroupedRanges(rawSearchResults.box, 8);
+    const boxStep = (rawSearchResults.box.length > 0 && rawSearchResults.box[0].val % 8 === 0) ? 8 : 2;
+    const boxRanges = getGroupedRanges(rawSearchResults.box, boxStep);
     ctx.lineWidth = 6;
     boxRanges.forEach(r => {
         ctx.strokeStyle = (r.turns === 1) ? '#ffff00' : '#aa00ff';
